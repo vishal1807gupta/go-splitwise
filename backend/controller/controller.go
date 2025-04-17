@@ -7,6 +7,7 @@ import (
 	model "go-splitwise/model"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -95,6 +96,117 @@ func fetchAllGroups() ([]model.Group, error) {
 	return groups, nil
 }
 
+func insertUserIntoGroup(groupID int, userID int64) error {
+	query := `INSERT INTO group_users (group_id, user_id)
+	          VALUES ($1, $2)
+	          ON CONFLICT DO NOTHING`
+	_, err := db.Exec(query, groupID, userID)
+	return err
+}
+
+func updateBalance(itemID int64, receiverID int64, amount int64) error {
+	query := `INSERT INTO item_splits (item_id, user_id, share)
+              VALUES ($1, $2, $3)
+              ON CONFLICT (item_id, user_id)
+              DO UPDATE SET share = EXCLUDED.share;`
+	_, err := db.Exec(query, itemID, receiverID, amount)
+	return err
+}
+
+func splitEqually(expense *model.Expense) error {
+	shareAmount := expense.Amount / int64(len(expense.Shares))
+	var newShares []model.UserShare
+	err := updateBalance(expense.ExpenseID, expense.PayerID, expense.Amount)
+	if err != nil {
+		return err
+	}
+	newShares = append(newShares, model.UserShare{UserID: expense.PayerID, ShareAmount: expense.Amount})
+	for _, share := range expense.Shares {
+		userID := share.UserID
+		if userID != expense.PayerID {
+			err = updateBalance(expense.ExpenseID, userID, -shareAmount)
+			if err != nil {
+				return err
+			}
+			newShares = append(newShares, model.UserShare{UserID: userID, ShareAmount: -shareAmount})
+		}
+	}
+	expense.Shares = newShares
+	return nil
+}
+
+func splitExactAmount(expense *model.Expense) error {
+	var sum int64 = 0
+	for _, share := range expense.Shares {
+		fmt.Println(share)
+		sum += int64(share.ShareAmount)
+	}
+	// fmt.Println(sum, expense.Amount)
+	if int64(sum) != expense.Amount {
+		return fmt.Errorf("sum of shares is not equal to the amount")
+	}
+	var newShares []model.UserShare
+	err := updateBalance(expense.ExpenseID, expense.PayerID, expense.Amount)
+	if err != nil {
+		return err
+	}
+	newShares = append(newShares, model.UserShare{UserID: expense.PayerID, ShareAmount: expense.Amount})
+	for i, share := range expense.Shares {
+		userID := share.UserID
+		if userID != expense.PayerID {
+			err = updateBalance(expense.ExpenseID, userID, -int64(expense.Shares[i].ShareAmount))
+			if err != nil {
+				return err
+			}
+			newShares = append(newShares, model.UserShare{UserID: userID, ShareAmount: -expense.Shares[i].ShareAmount})
+		}
+	}
+	expense.Shares = newShares
+	return nil
+}
+
+func splitByPercentage(expense *model.Expense) error {
+	var percentSum int64 = 0
+	for _, share := range expense.Shares {
+		percentSum += share.ShareAmount
+	}
+	if percentSum != 100 {
+		return fmt.Errorf("sum of shares is not equal to 100")
+	}
+	var newShares []model.UserShare
+	err := updateBalance(expense.ExpenseID, expense.PayerID, expense.Amount)
+	if err != nil {
+		return err
+	}
+	newShares = append(newShares, model.UserShare{UserID: expense.PayerID, ShareAmount: expense.Amount})
+	for i, share := range expense.Shares {
+		userID := share.UserID
+		if userID != expense.PayerID {
+			shareAmount := int64(expense.Shares[i].ShareAmount) * expense.Amount / 100
+			err = updateBalance(expense.ExpenseID, userID, -shareAmount)
+			if err != nil {
+				return err
+			}
+			newShares = append(newShares, model.UserShare{UserID: userID, ShareAmount: -shareAmount})
+		}
+	}
+	expense.Shares = newShares
+	return nil
+}
+
+func calculateBalances(expense *model.Expense) error {
+	// Calculate balances based on the expense type and update the balances table
+	switch expense.ExpenseType {
+	case "EQUAL":
+		return splitEqually(expense)
+	case "EXACT":
+		return splitExactAmount(expense)
+	case "PERCENTAGE":
+		return splitByPercentage(expense)
+	}
+	return nil
+}
+
 func GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	users, err := fetchAllUsers()
 	if err != nil {
@@ -165,16 +277,128 @@ func CreateGroup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(group)
 }
 
-func GetGroupDetailsByID(w http.ResponseWriter, r *http.Request) {
+func AddUsersToGroup(w http.ResponseWriter, r *http.Request) {
+	var groupUsers model.GroupUsers
+
+	vars := mux.Vars(r)
+	groupIDStr := vars["groupId"]
+
+	groupID, err := strconv.Atoi(groupIDStr)
+
+	if err != nil {
+		http.Error(w, "Invalid group_id", http.StatusBadRequest)
+		return
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&groupUsers); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	for _, userID := range groupUsers.UserIDs {
+		err := insertUserIntoGroup(groupID, userID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error adding user %d to group", userID), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":  "Users added to group successfully",
+		"group_id": groupID,
+		"user_ids": groupUsers.UserIDs,
+	})
+}
+
+func GetGroupUsers(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	groupID := vars["groupId"]
 
-	var group model.Group
-	err := db.QueryRow("SELECT group_id, name FROM groups WHERE group_id = $1", groupID).Scan(&group.GroupID, &group.GroupName)
+	rows, err := db.Query("SELECT u.user_id, u.name, u.email FROM users u JOIN group_users gu ON u.user_id = gu.user_id WHERE gu.group_id = $1", groupID)
 	if err != nil {
-		http.Error(w, "Group not found", http.StatusNotFound)
+		http.Error(w, "Failed to fetch group users", http.StatusInternalServerError)
 		return
 	}
+	defer rows.Close()
+
+	var users []model.UserResponse
+	for rows.Next() {
+		var u model.UserResponse
+		err := rows.Scan(&u.UserID, &u.Name, &u.Email)
+		if err != nil {
+			http.Error(w, "Failed to scan group users", http.StatusInternalServerError)
+			return
+		}
+		users = append(users, u)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(group)
+	json.NewEncoder(w).Encode(users)
+}
+
+func GetNotGroupUsers(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	groupID := vars["groupId"]
+
+	rows, err := db.Query(`SELECT u.user_id, u.name, u.email
+	FROM users u
+	WHERE u.user_id NOT IN (
+		SELECT user_id
+		FROM group_users
+		WHERE group_id = $1
+	)`, groupID)
+	if err != nil {
+		http.Error(w, "Failed to fetch group users", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var users []model.UserResponse
+	for rows.Next() {
+		var u model.UserResponse
+		err := rows.Scan(&u.UserID, &u.Name, &u.Email)
+		if err != nil {
+			http.Error(w, "Failed to scan group users", http.StatusInternalServerError)
+			return
+		}
+		users = append(users, u)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
+}
+
+func AddExpense(w http.ResponseWriter, r *http.Request) {
+	// fmt.Println("Hello")
+	var expense model.Expense
+	err := json.NewDecoder(r.Body).Decode(&expense)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+	// fmt.Println(err)
+	vars := mux.Vars(r)
+	groupID := vars["groupId"]
+
+	query := `INSERT INTO items (group_id, amount, paid_by, description) VALUES ($1, $2, $3, $4) RETURNING item_id`
+	err = db.QueryRow(query, groupID, expense.Amount, expense.PayerID, expense.Description).Scan(&expense.ExpenseID)
+	if err != nil {
+		http.Error(w, "Error inserting expense: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// fmt.Println(err)
+	err = calculateBalances(&expense)
+	// fmt.Println(err)
+	if err != nil {
+		query = `DELETE FROM items WHERE item_id = $1`
+		_, newErr := db.Exec(query, expense.ExpenseID)
+		if newErr != nil {
+			http.Error(w, "Error inserting expense: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "Error calculating balances: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// fmt.Println(err)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(expense)
 }

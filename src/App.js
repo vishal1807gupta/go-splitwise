@@ -9,7 +9,7 @@ const App = () =>{
       <Router>
         <Routes>
           <Route path="/" element={<Groups/>}/>
-          <Route path="/group/:groupId" element={<Group/>}/>
+          <Route path="/group/:groupId/:groupName" element={<Group/>}/>
         </Routes>
       </Router>
     </>

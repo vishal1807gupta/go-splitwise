@@ -18,3 +18,21 @@ type Group struct {
 	GroupID   int64  `json:"group_id"`
 	GroupName string `json:"group_name"`
 }
+
+type GroupUsers struct {
+	UserIDs []int64 `json:"user_ids"`
+}
+
+type UserShare struct {
+	UserID      int64 `json:"user_id"`
+	ShareAmount int64 `json:"share_amount"`
+}
+
+type Expense struct {
+	ExpenseID   int64       `json:"expense_id"`
+	Amount      int64       `json:"amount"`
+	PayerID     int64       `json:"payer_id"`
+	Description string      `json:"description"`
+	ExpenseType string      `json:"expense_type"`
+	Shares      []UserShare `json:"user_shares"`
+}
