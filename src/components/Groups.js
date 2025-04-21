@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from "react";
 import GroupCard from "./GroupCard";
 import GroupForm from "./GroupForm";
+import {useAuth} from "../auth/AuthContext";
 
 const Groups = () => {
     const [groups, setGroups] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [loading, setLoading] = useState(true);
+    const {currentUser} = useAuth();
+    const userId = currentUser ? currentUser.id : null;
 
     const fetchGroups = async () => {
         setLoading(true);
         try {
-            const response = await fetch("http://localhost:4000/api/groupdetails");
+            const response = await fetch(`http://localhost:4000/api/groupdetails/${userId}`);
             const data = await response.json();
             setGroups(data);
         } catch (error) {
@@ -21,8 +24,9 @@ const Groups = () => {
     };
 
     useEffect(() => {
-        fetchGroups();
-    }, []);
+        if(currentUser)fetchGroups();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser]);
 
     const handleCreateGroup = () => {
         setShowModal(true);
@@ -66,7 +70,7 @@ const Groups = () => {
                         </div>
                     ))}
                 </div>
-            ) : groups.length > 0 ? (
+            ) : groups &&groups.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {groups.map((group) => (
                         <div key={group.group_id} className="h-full">

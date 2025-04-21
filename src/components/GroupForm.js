@@ -1,12 +1,15 @@
 import React from "react";
+import {useAuth} from "../auth/AuthContext";
 
 const GroupForm = ({ onSuccess, onClose }) => {
+    const {currentUser} = useAuth();
+    if(!currentUser)return null;
     const handleSubmit = async (e) => {
         e.preventDefault();
         const groupName = document.getElementById("groupName").value;
         
         try {
-            const response = await fetch("http://localhost:4000/api/creategroup", {
+            const response = await fetch(`http://localhost:4000/api/creategroup/${currentUser.id}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
+	"go-splitwise/controller"
 	"go-splitwise/router"
 
 	_ "github.com/lib/pq"
@@ -13,15 +15,6 @@ import (
 
 func main() {
 	fmt.Println("Hello World")
-
-	// insertStmt := `insert into "users" ("name","email","password") values('Vishal','vishal@gmail.com','vish18')`
-	// insertDynStmt := `insert into "users" ("name","email","password") values($1,$2,$3)`
-	// //_, err = db.Exec(insertStmt)
-	// _, err = db.Exec(insertDynStmt, "Nishant", "nishant@gmail.com", "nish18")
-
-	// if err != nil {
-	// 	panic(err)
-	// }
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000"},
@@ -35,5 +28,13 @@ func main() {
 	handler := c.Handler(r)
 	log.Fatal(http.ListenAndServe(":4000", handler))
 	fmt.Println("Listening at port 4000...")
+
+	ticker := time.NewTicker(24 * time.Hour) // Once per day
+	defer ticker.Stop()
+	go func() {
+		for range ticker.C {
+			controller.CleanupExpiredSessions()
+		}
+	}()
 
 }

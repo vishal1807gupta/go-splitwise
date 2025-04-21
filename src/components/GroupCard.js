@@ -24,7 +24,8 @@ const GroupCard = ({ group }) => {
   const colorScheme = getGroupColor(group.group_id);
   
   const handleClick = () => {
-    navigate(`/group/${group.group_id}/${group.group_name}`);
+    console.log("hello");
+    navigate(`/groups/${group.group_id}/${group.group_name}`);
   };
   
   return (

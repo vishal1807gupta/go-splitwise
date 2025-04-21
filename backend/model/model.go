@@ -1,10 +1,11 @@
 package model
 
 type UserRequest struct {
-	UserID   int64  `json:"-"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	UserID     int64  `json:"-"`
+	Name       string `json:"name"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	RememberMe bool   `json:"rememberMe,omitempty"`
 }
 
 type UserResponse struct {
@@ -35,4 +36,9 @@ type Expense struct {
 	Description string      `json:"description"`
 	ExpenseType string      `json:"expense_type"`
 	Shares      []UserShare `json:"user_shares"`
+	Created_at  string      `json:"date"`
+}
+
+type UserIDsInput struct {
+	Users []int64 `json:"users"`
 }

@@ -3,6 +3,8 @@ import { useParams } from "react-router-dom";
 import GroupUsers from "./GroupUsers";
 import Users from "./Users";
 import Expense from "./Expense";
+import Items from "./Items";
+import Settlements from "./Settlements";
 
 const Group = () => {
     const { groupId, groupName } = useParams();
@@ -10,6 +12,7 @@ const Group = () => {
     const [showExpenseModal, setShowExpenseModal] = useState(false);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshItems, setRefreshItems] = useState(0);
 
     const fetchGroupUsers = async () => {
         setLoading(true);
@@ -54,7 +57,8 @@ const Group = () => {
     const handleExpenseAdded = () => {
         // Close the expense modal after successful submission
         setShowExpenseModal(false);
-        // You could also refresh expenses list here if you have one
+        // Refresh the items list
+        setRefreshItems(prev => prev + 1);
     };
 
     if (loading && users.length === 0) {
@@ -78,12 +82,9 @@ const Group = () => {
                             <h1 className="text-2xl font-bold text-gray-800">
                                 {groupName}
                             </h1>
-                            <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                                Group #{groupId}
-                            </span>
                         </div>
                         
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 mb-6">
                             <button 
                                 onClick={handleOpenExpenseModal} 
                                 className="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md shadow-sm transition-colors duration-200"
@@ -94,12 +95,25 @@ const Group = () => {
                                 Add Expense
                             </button>
                         </div>
+                        
+                        {/* Settlements Component */}
+                        <div className="border-t pt-4">
+                            <Settlements groupId={groupId} users={users}/>
+                        </div>
                     </div>
                     
                     <div className="bg-white shadow-md rounded-lg p-6">
-                        {/* Main content will go here (expenses list, etc.) */}
-                        <h2 className="text-xl font-bold text-gray-800 mb-4">Expenses</h2>
-                        <p className="text-gray-500">Your expense history will appear here.</p>
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-gray-800">Recent Expenses</h2>
+                            {/* Optional: Add filter or sorting controls here */}
+                        </div>
+                        
+                        {/* Items/Expenses list */}
+                        <Items 
+                            groupId={groupId} 
+                            users={users} 
+                            key={`items-${refreshItems}`} 
+                        />
                     </div>
                 </div>
 
@@ -107,7 +121,7 @@ const Group = () => {
                 <div className="w-full md:w-80 flex-shrink-0">
                     <div className="bg-white shadow-md rounded-lg p-4 sticky top-4">
                         <div className="flex flex-col">
-                            <GroupUsers users={users} loading={loading} />
+                            <GroupUsers users={users} />
                             
                             <button 
                                 onClick={handleOpenUsersModal} 

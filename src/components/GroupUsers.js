@@ -1,23 +1,8 @@
 import React from "react";
 import User from "./User";
 
-const GroupUsers = ({ users, loading }) => {
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        <h2 className="text-lg font-bold text-gray-800 mb-2">Group Members</h2>
-        {[...Array(2)].map((_, index) => (
-          <div key={index} className="animate-pulse flex items-center p-2 border border-gray-100 rounded-lg">
-            <div className="w-8 h-8 bg-gray-200 rounded-full mr-2"></div>
-            <div className="flex-1">
-              <div className="h-3 bg-gray-200 rounded w-1/3 mb-1"></div>
-              <div className="h-2 bg-gray-200 rounded w-1/2"></div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
+const GroupUsers = ({ users}) => {
+  if (!users) return null;
 
   return (
     <div className="space-y-2">
@@ -28,7 +13,7 @@ const GroupUsers = ({ users, loading }) => {
         </span>
       </div>
 
-      {users && users.length > 0 ? (
+      {users.length > 0 ? (
         <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
           {users.map((user) => (
             <div
