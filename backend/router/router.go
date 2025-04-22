@@ -23,6 +23,7 @@ func Router() *mux.Router {
 	r.HandleFunc("/api/auth/google", controller.HandleGoogleAuth).Methods("POST")
 	r.HandleFunc("/api/me", controller.GetLoggedInUser).Methods("GET")
 	r.HandleFunc("/api/logout", controller.Logout).Methods("POST")
+	r.HandleFunc("/api/update-password", controller.UpdatePassword).Methods("POST")
 
 	return r
 }

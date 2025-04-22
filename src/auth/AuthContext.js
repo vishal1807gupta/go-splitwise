@@ -1,4 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from "react";
+import { forgotPassword, confirmForgotPassword, updatePasswordInDatabase } from "../services/cognitoService";
+
 
 // Create the authentication context
 const AuthContext = createContext(null);
@@ -98,6 +100,31 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const requestPasswordReset = async (email) => {
+    try {
+      // Only handle the Cognito part at this stage
+      return await forgotPassword(email);
+    } catch (error) {
+      console.error("Error requesting password reset:", error);
+      throw error;
+    }
+  };
+
+  const resetPasswordComplete = async (email, code, newPassword) => {
+    try {
+
+      await confirmForgotPassword(email, code, newPassword);
+      
+      await updatePasswordInDatabase(email, newPassword);
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error completing password reset:", error);
+      throw error;
+    }
+  };
+
+
   const value = {
     currentUser,
     loading,
@@ -105,6 +132,8 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     setCurrentUser,
+    resetPasswordComplete,
+    requestPasswordReset,
   };
 
   return (

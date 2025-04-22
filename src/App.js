@@ -7,6 +7,19 @@ import Login from "./components/Login";
 import Register from "./components/Register";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Navbar from "./components/Navbar";
+import ForgotPassword from "./components/ForgotPassword";
+import ResetPassword from "./components/ResetPassword";
+import { useAuth } from "../src/auth/AuthContext";
+
+const PublicRoute = ({ children }) => {
+    const { currentUser } = useAuth();
+    
+    if (currentUser) {
+        return <Navigate to="/groups" replace />;
+    }
+    
+    return children;
+};
 
 const App = () => {
   return (
@@ -18,8 +31,26 @@ const App = () => {
             <div className="flex-grow mt-16">
               <Routes>
                 {/* Public routes */}
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
+                <Route path="/login" element={
+                    <PublicRoute>
+                        <Login />
+                    </PublicRoute>
+                } />
+                <Route path="/register" element={
+                    <PublicRoute>
+                        <Register />
+                    </PublicRoute>
+                } />
+                <Route path="/forgot-password" element={
+                    <PublicRoute>
+                        <ForgotPassword />
+                    </PublicRoute>
+                } />
+                <Route path="/reset-password" element={
+                    <PublicRoute>
+                        <ResetPassword />
+                    </PublicRoute>
+                } />
                 
                 {/* Protected routes */}
                 <Route element={<ProtectedRoute />}>

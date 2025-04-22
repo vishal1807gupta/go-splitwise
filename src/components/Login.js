@@ -125,12 +125,12 @@ const Login = () => {
             </div>
 
             <div className="text-sm">
-              <a
-                href="#"
+              <Link
+                to="/forgot-password"
                 className="font-medium text-indigo-600 hover:text-indigo-500"
               >
                 Forgot your password?
-              </a>
+              </Link>
             </div>
           </div>
 

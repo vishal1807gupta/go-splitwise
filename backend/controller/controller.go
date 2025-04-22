@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
 )
 
@@ -222,8 +223,14 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		return
+	}
+
 	query := `INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING user_id`
-	err = db.QueryRow(query, user.Name, user.Email, user.Password).Scan(&user.UserID)
+	err = db.QueryRow(query, user.Name, user.Email, string(hashedPassword)).Scan(&user.UserID)
 	if err != nil {
 		http.Error(w, "Error inserting user: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -268,7 +275,17 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var registeredUser model.UserResponse
-	err = db.QueryRow("SELECT user_id, name, email FROM users WHERE email = $1 AND password = $2", user.Email, user.Password).Scan(&registeredUser.UserID, &registeredUser.Name, &registeredUser.Email)
+	var hashedPassword string
+
+	err = db.QueryRow("SELECT user_id, name, email, password FROM users WHERE email = $1",
+		user.Email).Scan(&registeredUser.UserID, &registeredUser.Name, &registeredUser.Email, &hashedPassword)
+
+	if err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password))
 	if err != nil {
 		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
 		return
@@ -468,6 +485,37 @@ func GetLoggedInUser(w http.ResponseWriter, r *http.Request) {
 	// User is authenticated, return user data
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
+}
+
+func UpdatePassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Email       string `json:"email"`
+		NewPassword string `json:"newPassword"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		return
+	}
+
+	// Update the user's password in the database
+	_, err = db.Exec("UPDATE users SET password = $1 WHERE email = $2", string(hashedPassword), input.Email)
+	if err != nil {
+		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Password updated successfully",
+	})
 }
 
 func CleanupExpiredSessions() {
