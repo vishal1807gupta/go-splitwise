@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../auth/AuthContext";
 
-const Settlements = ({ groupId, users }) => {
+const Settlements = ({ groupId, users, refreshItems }) => {
   const { currentUser } = useAuth();
   const [settlements, setSettlements] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,14 +38,22 @@ const Settlements = ({ groupId, users }) => {
   useEffect(() => {
     if (!users || !currentUser) return;
     fetchSettlements();
-  }, [users, groupId, currentUser?.id]);
+  }, [users, groupId, currentUser?.id, refreshItems]);
 
   // Check if there are any non-zero settlements
-  const hasSettlements = settlements.some(s => s.share_amount !== 0);
-  
-  // Get total balance (positive amount means others owe you, negative means you owe others)
-  const totalBalance = settlements.reduce((sum, s) => sum + s.share_amount, 0).toFixed(2);
-  const isPositiveBalance = parseFloat(totalBalance) >= 0;
+  const hasSettlements = useMemo(() => {
+    if(!settlements)return false;
+    return settlements.some(s => s.share_amount !== 0);
+  }, [settlements]);
+
+  const { totalBalance, isPositiveBalance } = useMemo(() => {
+    if(!settlements)return false;
+    const total = settlements.reduce((sum, s) => sum + s.share_amount, 0).toFixed(2);
+    return {
+      totalBalance: total,
+      isPositiveBalance: parseFloat(total) >= 0
+    };
+  }, [settlements]);
 
   if (isLoading) {
     return (

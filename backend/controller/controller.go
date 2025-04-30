@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go-splitwise/email"
 	model "go-splitwise/model"
 	"log"
 	"net/http"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/api/idtoken"
@@ -42,7 +45,17 @@ func init() {
 	}
 	fmt.Println("Successfully connected!")
 
+	err = godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file, using existing environment variables")
+	}
+
 	// defer db.Close()
+}
+
+type PasswordResetService struct {
+	emailService *email.EmailService
+	codeTTL      time.Duration
 }
 
 func generateSessionToken() string {
@@ -209,6 +222,231 @@ func calculateBalances(expense *model.Expense) error {
 		return splitByPercentage(expense)
 	}
 	return nil
+}
+
+func getUserByEmail(email string) (*model.UserRequest, error) {
+	user := &model.UserRequest{}
+	query := "SELECT user_id, email, password FROM users WHERE email = $1"
+	err := db.QueryRow(query, email).Scan(&user.UserID, &user.Email, &user.Password)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
+func newPasswordResetService(emailService *email.EmailService) *PasswordResetService {
+	return &PasswordResetService{
+		emailService: emailService,
+		codeTTL:      15 * time.Minute,
+	}
+}
+
+func savePasswordReset(reset model.PasswordReset) error {
+	query := `
+		INSERT INTO password_resets (user_id, email, code, expires_at, used)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	_, err := db.Exec(query, reset.UserID, reset.Email, reset.Code, reset.ExpiresAt, reset.Used)
+	return err
+}
+
+func (s *PasswordResetService) RequestPasswordReset(emailAddress string) error {
+	// First check if the user exists
+	user, err := getUserByEmail(emailAddress)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	// Generate a verification code
+	code := email.GenerateVerificationCode()
+
+	// Store code in database
+	reset := model.PasswordReset{
+		UserID:    user.UserID,
+		Email:     emailAddress,
+		Code:      code,
+		ExpiresAt: time.Now().Add(s.codeTTL),
+		Used:      false,
+	}
+
+	if err := savePasswordReset(reset); err != nil {
+		return err
+	}
+
+	// Send email with code
+	if err := s.emailService.SendPasswordResetCode(emailAddress, code); err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	return nil
+}
+
+func getLatestPasswordResetByEmail(emailAddress string) (*model.PasswordReset, error) {
+	reset := &model.PasswordReset{}
+	query := `
+		SELECT id, user_id, email, code, expires_at, used, created_at
+		FROM password_resets
+		WHERE email = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	err := db.QueryRow(query, emailAddress).Scan(
+		&reset.ID, &reset.UserID, &reset.Email, &reset.Code,
+		&reset.ExpiresAt, &reset.Used, &reset.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("no reset request found")
+		}
+		return nil, err
+	}
+	return reset, nil
+}
+
+func updateUserPassword(userID int64, hashedPassword string) error {
+	query := "UPDATE users SET password = $1 WHERE user_id = $2"
+	result, err := db.Exec(query, hashedPassword, userID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return errors.New("no user found with that ID")
+	}
+
+	return nil
+}
+
+func markPasswordResetCodeAsUsed(resetID int64) error {
+	query := "UPDATE password_resets SET used = true WHERE id = $1"
+	_, err := db.Exec(query, resetID)
+	return err
+}
+
+func (s *PasswordResetService) ValidateCodeAndResetPassword(email, code, newPassword string) error {
+	// Get the most recent reset request for this email
+	reset, err := getLatestPasswordResetByEmail(email)
+	if err != nil {
+		return errors.New("invalid or expired reset request")
+	}
+
+	// Check if code is valid
+	if reset.Code != code {
+		return errors.New("invalid verification code")
+	}
+
+	// Check if code is expired
+	if time.Now().After(reset.ExpiresAt) {
+		return errors.New("verification code expired")
+	}
+
+	// Check if code was already used
+	if reset.Used {
+		return errors.New("verification code already used")
+	}
+
+	// Hash the new password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 14)
+	if err != nil {
+		return errors.New("could not process password")
+	}
+
+	// Update user password in DB
+	if err := updateUserPassword(reset.UserID, string(hashedPassword)); err != nil {
+		return errors.New("failed to update password")
+	}
+
+	// Mark code as used
+	if err := markPasswordResetCodeAsUsed(reset.ID); err != nil {
+		// Log this error but continue
+		// log.Printf("Failed to mark code as used: %v", err)
+	}
+
+	return nil
+}
+
+// RequestPasswordResetHandler handles the password reset request from users
+func RequestPasswordResetHandler(w http.ResponseWriter, r *http.Request) {
+	var req model.RequestPasswordResetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Create email service
+	emailService, err := email.NewEmailService(
+		r.Context(),
+		os.Getenv("AWS_REGION"),
+		os.Getenv("EMAIL_SENDER"),
+	)
+	if err != nil {
+		http.Error(w, "Failed to initialize email service", http.StatusInternalServerError)
+		return
+	}
+
+	// Create password reset service
+	resetService := newPasswordResetService(emailService)
+
+	// Request password reset
+	fmt.Println(req.Email)
+	err = resetService.RequestPasswordReset(req.Email)
+	if err != nil {
+		// Don't reveal if the email exists or not for security
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Error",
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "If your email is registered, you will receive a verification code",
+	})
+}
+
+// ResetPasswordCompleteHandler handles the password reset completion
+func ResetPasswordCompleteHandler(w http.ResponseWriter, r *http.Request) {
+	var req model.ResetPasswordCompleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Create email service
+	emailService, err := email.NewEmailService(
+		r.Context(),
+		os.Getenv("AWS_REGION"),
+		os.Getenv("EMAIL_SENDER"),
+	)
+	if err != nil {
+		http.Error(w, "Failed to initialize email service", http.StatusInternalServerError)
+		return
+	}
+
+	// Create password reset service
+	resetService := newPasswordResetService(emailService)
+
+	// Reset password with verification code
+	err = resetService.ValidateCodeAndResetPassword(req.Email, req.Code, req.NewPassword)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Password has been reset successfully",
+	})
 }
 
 func RegisterUser(w http.ResponseWriter, r *http.Request) {

@@ -2,15 +2,6 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import GoogleAuthentication from "./GoogleAuthentication";
-import AWS from 'aws-sdk';
-
-AWS.config.update({
-  region: 'ap-southeast-2',
-  credentials: new AWS.Credentials({
-    accessKeyId: process.env.REACT_APP_ACCESS_KEY_ID,
-    secretAccessKey: process.env.REACT_APP_SECRET_ACCESS_KEY
-  })
-});
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -33,41 +24,6 @@ const Register = () => {
     });
   };
 
-  const registerUser = async (email, password, name) => {
-    try {
-      // 1. First create user in your database
-      const newUser = await register(name,email,password);
-      
-      // 2. Then create the same user in Cognito
-      const params = {
-        UserPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID,
-        Username: name.replace(/\s+/g, '_').toLowerCase(),
-        MessageAction: "SUPPRESS", // basically this method forces the user to set their password on first login so to prevent this this technique is used so it doesn't send an email for temporary password and also immediately sets the temporary password to permanent password
-        TemporaryPassword: password,
-        UserAttributes: [
-          { Name: 'email', Value: email },
-          { Name: 'email_verified', Value: 'true' }
-        ]
-      };
-
-      const cognitoProvider = new AWS.CognitoIdentityServiceProvider();
-      await cognitoProvider.adminCreateUser(params).promise();
-      
-      // Set their permanent password
-      await cognitoProvider.adminSetUserPassword({
-        UserPoolId: process.env.REACT_APP_COGNITO_USER_POOL_ID,
-        Username: name.replace(/\s+/g, '_').toLowerCase(),
-        Password: password,
-        Permanent: true
-      }).promise();
-      
-      return newUser; // Return user object to client
-    } catch (error) {
-      console.error("Error registering user:", error);
-      throw error;
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -82,7 +38,7 @@ const Register = () => {
 
     try {
       // Call the register function from auth context
-      await registerUser(formData.email, formData.password, formData.name );
+      await register(formData.name,formData.email,formData.password);
 
       // Navigate to login page after successful registration
       navigate("/groups");

@@ -98,7 +98,7 @@ const Group = () => {
                         
                         {/* Settlements Component */}
                         <div className="border-t pt-4">
-                            <Settlements groupId={groupId} users={users}/>
+                            <Settlements groupId={groupId} users={users} refreshItems={refreshItems}/>
                         </div>
                     </div>
                     

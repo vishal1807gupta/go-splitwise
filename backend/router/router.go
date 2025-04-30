@@ -24,6 +24,8 @@ func Router() *mux.Router {
 	r.HandleFunc("/api/me", controller.GetLoggedInUser).Methods("GET")
 	r.HandleFunc("/api/logout", controller.Logout).Methods("POST")
 	r.HandleFunc("/api/update-password", controller.UpdatePassword).Methods("POST")
+	r.HandleFunc("/api/auth/request-password-reset", controller.RequestPasswordResetHandler).Methods("POST")
+	r.HandleFunc("/api/auth/reset-password-complete", controller.ResetPasswordCompleteHandler).Methods("POST")
 
 	return r
 }

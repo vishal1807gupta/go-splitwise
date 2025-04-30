@@ -1,5 +1,9 @@
 package model
 
+import (
+	"time"
+)
+
 type UserRequest struct {
 	UserID     int64  `json:"-"`
 	Name       string `json:"name"`
@@ -41,4 +45,24 @@ type Expense struct {
 
 type UserIDsInput struct {
 	Users []int64 `json:"users"`
+}
+
+type PasswordReset struct {
+	ID        int64
+	UserID    int64
+	Email     string
+	Code      string
+	ExpiresAt time.Time
+	Used      bool
+	CreatedAt time.Time
+}
+
+type RequestPasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordCompleteRequest struct {
+	Email       string `json:"email"`
+	Code        string `json:"code"`
+	NewPassword string `json:"newPassword"`
 }

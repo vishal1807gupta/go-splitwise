@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from "react";
-import { forgotPassword, confirmForgotPassword, updatePasswordInDatabase } from "../services/cognitoService";
+import axios from 'axios';
 
 
 // Create the authentication context
@@ -102,25 +102,25 @@ export const AuthProvider = ({ children }) => {
 
   const requestPasswordReset = async (email) => {
     try {
-      // Only handle the Cognito part at this stage
-      return await forgotPassword(email);
+      const response = await axios.post('http://localhost:4000/api/auth/request-password-reset', { email });
+      console.log(response);
+      return response.data;
     } catch (error) {
-      console.error("Error requesting password reset:", error);
-      throw error;
+      throw new Error(error.response?.data || 'Failed to request password reset');
     }
   };
 
   const resetPasswordComplete = async (email, code, newPassword) => {
     try {
-
-      await confirmForgotPassword(email, code, newPassword);
-      
-      await updatePasswordInDatabase(email, newPassword);
-      
-      return { success: true };
+      const response = await axios.post('http://localhost:4000/api/auth/reset-password-complete', {
+        email,
+        code,
+        newPassword
+      });
+      console.log(response);
+      return response.data;
     } catch (error) {
-      console.error("Error completing password reset:", error);
-      throw error;
+      throw new Error(error.response?.data || 'Failed to reset password');
     }
   };
 
