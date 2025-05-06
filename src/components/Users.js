@@ -12,7 +12,8 @@ const Users = ({ groupId: propGroupId, inModal = false, onUsersAdded, onCancel }
     const [users, setUsers] = useState([]);
     const [checkedUsers, setCheckedUsers] = useState([]);
     const [loading, setLoading] = useState(true);
-
+    const [searchQuery, setSearchQuery] = useState("");
+    
     const toggle = (userId) => {
         setCheckedUsers((prevCheckedUsers) => {
             if (prevCheckedUsers.includes(userId)) {
@@ -61,6 +62,17 @@ const Users = ({ groupId: propGroupId, inModal = false, onUsersAdded, onCancel }
         };
         fetchGroupUsers();
     }, [groupId]);
+    
+    // Filter users based on search query
+    const filteredUsers = users && users.filter(user => {
+        const query = searchQuery.toLowerCase().trim();
+        if (!query) return true;
+        
+        return (
+            (user.name && user.name.toLowerCase().includes(query)) || 
+            (user.email && user.email.toLowerCase().includes(query))
+        );
+    });
 
     if (loading) {
         return (
@@ -85,18 +97,50 @@ const Users = ({ groupId: propGroupId, inModal = false, onUsersAdded, onCancel }
         <div className="w-full">
             {users && users.length > 0 ? (
                 <>
+                    {/* Search Input */}
+                    <div className="mb-3 relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                            placeholder="Search by name or email"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                        {searchQuery && (
+                            <button
+                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                onClick={() => setSearchQuery("")}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
                     <div className="space-y-1 mb-4 max-h-64 overflow-y-auto pr-1">
-                        {users.map((user) => (
-                            <div key={user.id} className="flex items-center p-2 border rounded hover:bg-gray-50">
-                                <User user={user} compact={true} />
-                                <input 
-                                    type="checkbox"
-                                    checked={checkedUsers.includes(user.id)}
-                                    onChange={() => toggle(user.id)}
-                                    className="ml-auto h-4 w-4 text-indigo-600 rounded"
-                                />
+                        {filteredUsers.length > 0 ? (
+                            filteredUsers.map((user) => (
+                                <div key={user.id} className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <User user={user} compact={true} />
+                                    <input 
+                                        type="checkbox"
+                                        checked={checkedUsers.includes(user.id)}
+                                        onChange={() => toggle(user.id)}
+                                        className="ml-auto h-4 w-4 text-indigo-600 rounded"
+                                    />
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-center py-4 bg-gray-50 rounded-lg">
+                                <p className="text-sm text-gray-500">No users found matching "{searchQuery}"</p>
                             </div>
-                        ))}
+                        )}
                     </div>
                     
                     <div className="flex items-center justify-between border-t pt-3">

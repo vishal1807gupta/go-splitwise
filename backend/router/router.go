@@ -26,6 +26,11 @@ func Router() *mux.Router {
 	r.HandleFunc("/api/update-password", controller.UpdatePassword).Methods("POST")
 	r.HandleFunc("/api/auth/request-password-reset", controller.RequestPasswordResetHandler).Methods("POST")
 	r.HandleFunc("/api/auth/reset-password-complete", controller.ResetPasswordCompleteHandler).Methods("POST")
+	r.HandleFunc("/api/memories/{groupId}", controller.GetMemoriesHandler).Methods("GET")
+	r.HandleFunc("/api/memories/upload", controller.UploadMemoryHandler).Methods("POST")
+	r.HandleFunc("/api/memories/{memoryId}", controller.DeleteMemoryHandler).Methods("DELETE")
+	r.HandleFunc("/api/getTransactions/{groupId}", controller.GetTransactions).Methods("GET")
+	r.HandleFunc("/api/insertTransactions/{groupId}", controller.InsertTransactions).Methods("POST")
 
 	return r
 }

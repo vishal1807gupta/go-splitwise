@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-splitwise/cloudfareR2"
 	"go-splitwise/email"
 	model "go-splitwise/model"
 	"log"
@@ -1037,6 +1038,23 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 				totalAmount += shareAmount
 			}
 
+			rows, err = db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3", groupID, userID, uID)
+			if err != nil {
+				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+
+			var amount int64
+			for rows.Next() {
+				err := rows.Scan(&amount)
+				if err != nil {
+					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					return
+				}
+				totalAmount -= amount
+			}
+
 			rows, err = db.Query("SELECT item_id FROM items WHERE group_id = $1 AND paid_by = $2", groupID, userID)
 			if err != nil {
 				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
@@ -1060,6 +1078,22 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 				}
 				totalAmount -= shareAmount
 			}
+
+			rows, err = db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3", groupID, uID, userID)
+			if err != nil {
+				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				return
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				err := rows.Scan(&amount)
+				if err != nil {
+					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					return
+				}
+				totalAmount += amount
+			}
 			settlements = append(settlements, model.UserShare{UserID: uID, ShareAmount: totalAmount})
 		}
 	}
@@ -1067,4 +1101,314 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(settlements)
 
+}
+
+func GetMemoriesHandler(w http.ResponseWriter, r *http.Request) {
+	// Set content type
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get groupId from URL parameters
+	vars := mux.Vars(r)
+	groupId, err := strconv.Atoi(vars["groupId"])
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	// Query database for memories
+	rows, err := db.Query(`
+		SELECT id, group_id, filename, image_url, created_at 
+		FROM memories 
+		WHERE group_id = $1 
+		ORDER BY created_at DESC`, groupId)
+	if err != nil {
+		log.Printf("Error querying memories: %v", err)
+		http.Error(w, "Failed to fetch memories", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Parse rows into memories slice
+	var memories []model.Memory
+	for rows.Next() {
+		var memory model.Memory
+		err := rows.Scan(
+			&memory.ID,
+			&memory.GroupID,
+			&memory.Filename,
+			&memory.ImageURL,
+			&memory.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("Error scanning memory row: %v", err)
+			continue
+		}
+
+		memories = append(memories, memory)
+	}
+
+	// Check for errors during row iteration
+	if err = rows.Err(); err != nil {
+		log.Printf("Error iterating memory rows: %v", err)
+		http.Error(w, "Error fetching memories", http.StatusInternalServerError)
+		return
+	}
+
+	// Return memories as JSON
+	response := model.MemoryResponse{
+		Success:  true,
+		Memories: memories,
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+// uploadMemoryHandler handles file uploads for memories
+func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
+	// Set content type
+	w.Header().Set("Content-Type", "application/json")
+
+	r2Storage, err := cloudfareR2.NewR2Storage(
+		os.Getenv("R2_ACCESS_KEY"),
+		os.Getenv("R2_SECRET_KEY"),
+		os.Getenv("R2_ACCOUNT_ID"),
+		os.Getenv("R2_BUCKET_NAME"),
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize R2 storage: %v", err)
+	}
+
+	// Parse multipart form with 5MB limit
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		http.Error(w, "File too large. Maximum size is 5MB", http.StatusBadRequest)
+		return
+	}
+
+	// Get form values
+	groupIdStr := r.FormValue("groupId")
+	if groupIdStr == "" {
+		http.Error(w, "Missing group ID", http.StatusBadRequest)
+		return
+	}
+
+	groupId, err := strconv.Atoi(groupIdStr)
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get file from form
+	file, fileHeader, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Validate file type
+	contentType := fileHeader.Header.Get("Content-Type")
+	if !isValidImageType(contentType) {
+		http.Error(w, "Invalid file type. Only images are allowed", http.StatusBadRequest)
+		return
+	}
+
+	// Upload file to R2
+	filename, imageURL, err := r2Storage.UploadFile(file, fileHeader)
+	if err != nil {
+		log.Printf("Error uploading file to R2: %v", err)
+		http.Error(w, "Error uploading file", http.StatusInternalServerError)
+		return
+	}
+
+	// Insert into database
+	var memory model.Memory
+	err = db.QueryRow(`
+		INSERT INTO memories (group_id, filename, image_url, created_at)
+		VALUES ($1, $2, $3, NOW())
+		RETURNING id, group_id, filename, image_url, created_at`,
+		groupId, filename, imageURL).Scan(
+		&memory.ID,
+		&memory.GroupID,
+		&memory.Filename,
+		&memory.ImageURL,
+		&memory.CreatedAt,
+	)
+	if err != nil {
+		log.Printf("Error inserting memory: %v", err)
+		// Try to delete the file from R2 since the DB insert failed
+		if delErr := r2Storage.DeleteFile(filename); delErr != nil {
+			log.Printf("Error deleting file from R2 after DB insert failed: %v", delErr)
+		}
+		http.Error(w, "Error saving memory", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the memory as JSON
+	response := model.MemoryResponse{
+		Success: true,
+		Message: "Memory uploaded successfully",
+		Memory:  &memory,
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+// deleteMemoryHandler deletes a memory
+func DeleteMemoryHandler(w http.ResponseWriter, r *http.Request) {
+	// Set content type
+	w.Header().Set("Content-Type", "application/json")
+
+	r2Storage, err := cloudfareR2.NewR2Storage(
+		os.Getenv("R2_ACCESS_KEY"),
+		os.Getenv("R2_SECRET_KEY"),
+		os.Getenv("R2_ACCOUNT_ID"),
+		os.Getenv("R2_BUCKET_NAME"),
+	)
+	if err != nil {
+		log.Fatalf("Failed to initialize R2 storage: %v", err)
+	}
+
+	// Get memoryId from URL parameters
+	vars := mux.Vars(r)
+	memoryId, err := strconv.Atoi(vars["memoryId"])
+	if err != nil {
+		http.Error(w, "Invalid memory ID", http.StatusBadRequest)
+		return
+	}
+
+	// In a real app, you'd verify the user has permission to delete this memory
+	// For simplicity, we're skipping that check here
+
+	// Get the memory filename first before deleting
+	var filename string
+	err = db.QueryRow("SELECT filename FROM memories WHERE id = $1", memoryId).Scan(&filename)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Memory not found", http.StatusNotFound)
+		} else {
+			log.Printf("Error fetching memory: %v", err)
+			http.Error(w, "Error fetching memory", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Delete from database
+	result, err := db.Exec("DELETE FROM memories WHERE id = $1", memoryId)
+	if err != nil {
+		log.Printf("Error deleting memory from database: %v", err)
+		http.Error(w, "Error deleting memory", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Memory not found", http.StatusNotFound)
+		return
+	}
+
+	// Delete the file from R2
+	if err := r2Storage.DeleteFile(filename); err != nil {
+		log.Printf("Warning: Could not delete file from R2: %v", err)
+		// Continue anyway, as the database record is already deleted
+	}
+
+	// Return success response
+	response := model.MemoryResponse{
+		Success: true,
+		Message: "Memory deleted successfully",
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+// Helper function to validate image types
+func isValidImageType(contentType string) bool {
+	validTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/png":  true,
+		"image/gif":  true,
+		"image/webp": true,
+		"image/bmp":  true,
+		"image/tiff": true,
+	}
+	return validTypes[contentType]
+}
+
+func GetTransactions(w http.ResponseWriter, r *http.Request) {
+	// Set content type
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get groupId from URL parameters
+	vars := mux.Vars(r)
+	groupId, err := strconv.Atoi(vars["groupId"])
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+
+	// Query database for transactions
+	rows, err := db.Query(`
+		SELECT id, user_id, payer_id, group_id, amount, created_at 
+		FROM transactions 
+		WHERE group_id = $1 
+		ORDER BY created_at DESC`, groupId)
+	if err != nil {
+		log.Printf("Error querying transactions: %v", err)
+		http.Error(w, "Failed to fetch transactions", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Parse rows into transactions slice
+	var transactions []model.Transactions
+	for rows.Next() {
+		var transaction model.Transactions
+		err := rows.Scan(
+			&transaction.ID,
+			&transaction.UserID,
+			&transaction.PayerID,
+			&transaction.GroupID,
+			&transaction.Amount,
+			&transaction.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("Error scanning transaction row: %v", err)
+			continue
+		}
+
+		transactions = append(transactions, transaction)
+	}
+
+	// Check for errors during row iteration
+	if err = rows.Err(); err != nil {
+		log.Printf("Error iterating transaction rows: %v", err)
+		http.Error(w, "Error fetching transactions", http.StatusInternalServerError)
+		return
+	}
+
+	// Return transactions as JSON
+	json.NewEncoder(w).Encode(transactions)
+}
+
+func InsertTransactions(w http.ResponseWriter, r *http.Request) {
+	// Set content type
+	w.Header().Set("Content-Type", "application/json")
+	// Get groupId from URL parameters
+	vars := mux.Vars(r)
+	groupId, err := strconv.Atoi(vars["groupId"])
+	if err != nil {
+		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		return
+	}
+	var transaction model.Transactions
+	err = json.NewDecoder(r.Body).Decode(&transaction)
+	if err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+	transaction.GroupID = int64(groupId)
+	query := `INSERT INTO transactions (user_id, payer_id, group_id, amount) VALUES ($1, $2, $3, $4) RETURNING id`
+	err = db.QueryRow(query, transaction.UserID, transaction.PayerID, groupId, transaction.Amount).Scan(&transaction.ID)
+	if err != nil {
+		http.Error(w, "Error inserting transaction: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(transaction)
 }

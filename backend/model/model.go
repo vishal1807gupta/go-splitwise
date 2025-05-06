@@ -66,3 +66,27 @@ type ResetPasswordCompleteRequest struct {
 	Code        string `json:"code"`
 	NewPassword string `json:"newPassword"`
 }
+
+type Memory struct {
+	ID        int       `json:"id"`
+	GroupID   int       `json:"groupId"`
+	Filename  string    `json:"filename"`
+	ImageURL  string    `json:"imageUrl"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type MemoryResponse struct {
+	Success  bool     `json:"success"`
+	Message  string   `json:"message,omitempty"`
+	Memory   *Memory  `json:"memory,omitempty"`
+	Memories []Memory `json:"memories,omitempty"`
+}
+
+type Transactions struct {
+	ID        int64     `json:"id"`
+	UserID    int64     `json:"user_id"`
+	PayerID   int64     `json:"payer_id"`
+	GroupID   int64     `json:"group_id"`
+	Amount    int64     `json:"amount"`
+	CreatedAt time.Time `json:"created_at"`
+}

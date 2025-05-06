@@ -7,6 +7,7 @@ const GroupForm = ({ onSuccess, onClose }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const groupName = document.getElementById("groupName").value;
+        console.log(groupName);
         
         try {
             const response = await fetch(`http://localhost:4000/api/creategroup/${currentUser.id}`, {

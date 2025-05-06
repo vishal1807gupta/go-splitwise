@@ -5,14 +5,19 @@ import Users from "./Users";
 import Expense from "./Expense";
 import Items from "./Items";
 import Settlements from "./Settlements";
+import Memories from "./Memories"; // Import the new Memories component
+import RecentTransactions from "./RecentTransactions";
 
 const Group = () => {
     const { groupId, groupName } = useParams();
     const [showUsersModal, setShowUsersModal] = useState(false);
     const [showExpenseModal, setShowExpenseModal] = useState(false);
+    const [showMemoriesModal, setShowMemoriesModal] = useState(false); // New state for Memories modal
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshItems, setRefreshItems] = useState(0);
+    const [refreshMemories, setRefreshMemories] = useState(0); // New state for refreshing memories
+    const [refreshTransactions, setRefreshTransactions] = useState(0);
 
     const fetchGroupUsers = async () => {
         setLoading(true);
@@ -48,6 +53,15 @@ const Group = () => {
         setShowExpenseModal(false);
     };
 
+    // New handlers for Memories modal
+    const handleOpenMemoriesModal = () => {
+        setShowMemoriesModal(true);
+    };
+
+    const handleCloseMemoriesModal = () => {
+        setShowMemoriesModal(false);
+    };
+
     const handleUsersAdded = () => {
         // Close the modal and refresh group data
         setShowUsersModal(false);
@@ -59,6 +73,12 @@ const Group = () => {
         setShowExpenseModal(false);
         // Refresh the items list
         setRefreshItems(prev => prev + 1);
+    };
+
+    // New handler for memory added
+    const handleMemoryAdded = () => {
+        // Refresh memories when new one is added
+        setRefreshMemories(prev => prev + 1);
     };
 
     if (loading && users.length === 0) {
@@ -94,11 +114,22 @@ const Group = () => {
                                 </svg>
                                 Add Expense
                             </button>
+
+                            {/* Memories Button */}
+                            <button 
+                                onClick={handleOpenMemoriesModal} 
+                                className="inline-flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md shadow-sm transition-colors duration-200"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                                </svg>
+                                Memories
+                            </button>
                         </div>
                         
                         {/* Settlements Component */}
                         <div className="border-t pt-4">
-                            <Settlements groupId={groupId} users={users} refreshItems={refreshItems}/>
+                            <Settlements groupId={groupId} users={users} refreshItems={refreshItems} setRefreshTransactions={setRefreshTransactions}/>
                         </div>
                     </div>
                     
@@ -117,8 +148,8 @@ const Group = () => {
                     </div>
                 </div>
 
-                {/* Side Panel */}
-                <div className="w-full md:w-80 flex-shrink-0">
+               <div className="w-full md:w-80 flex-shrink-0 flex flex-col gap-6">
+                {/* Users section */}
                     <div className="bg-white shadow-md rounded-lg p-4 sticky top-4">
                         <div className="flex flex-col">
                             <GroupUsers users={users} />
@@ -134,6 +165,12 @@ const Group = () => {
                             </button>
                         </div>
                     </div>
+                    
+                    {/* Recent Transactions component */}
+                    <RecentTransactions 
+                        users={users} 
+                        refreshTransactions={refreshTransactions}
+                    />
                 </div>
             </div>
 
@@ -198,6 +235,41 @@ const Group = () => {
                     </div>
                 </div>
             )}
+
+        {/* Memories Modal */}
+        {showMemoriesModal && (
+            <div className="fixed inset-0 z-50">
+                <div 
+                    className="absolute inset-0 bg-black bg-opacity-70 backdrop-blur-sm transition-opacity duration-300"
+                    onClick={handleCloseMemoriesModal}
+                ></div>
+                <div className="fixed inset-0 z-10 flex items-center justify-center pointer-events-none">
+                    <div className="bg-white rounded-2xl shadow-2xl pointer-events-auto w-full max-w-3xl mx-4 relative transition-all duration-300 transform scale-100 flex flex-col max-h-[90vh] overflow-hidden">
+                        {/* Enhanced header with gradient background */}
+                        <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-purple-600 p-4 border-b flex justify-between items-center rounded-t-2xl">
+                            <h2 className="text-xl font-bold text-white">Group Memories</h2>
+                            <button 
+                                onClick={handleCloseMemoriesModal}
+                                className="p-1 rounded-full hover:bg-white hover:bg-opacity-20 transition-colors duration-200"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        {/* Content area with memories component */}
+                        <div className="flex-grow overflow-auto">
+                            <Memories 
+                                groupId={groupId}
+                                onMemoryAdded={handleMemoryAdded}
+                                key={`memories-${refreshMemories}`}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
         </div>
     );
 };
