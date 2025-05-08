@@ -90,3 +90,10 @@ type Transactions struct {
 	Amount    int64     `json:"amount"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type Balance struct {
+	OtherUserID   int64
+	OtherUserName string
+	Amount        int64
+	GroupName     string
+}

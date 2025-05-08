@@ -148,31 +148,25 @@ const Group = () => {
                     </div>
                 </div>
 
-               <div className="w-full md:w-80 flex-shrink-0 flex flex-col gap-6">
-                {/* Users section */}
-                    <div className="bg-white shadow-md rounded-lg p-4 sticky top-4">
-                        <div className="flex flex-col">
-                            <GroupUsers users={users} />
-                            
-                            <button 
-                                onClick={handleOpenUsersModal} 
-                                className="mt-4 inline-flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-md shadow-sm transition-colors duration-200 w-full"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                    <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
-                                </svg>
-                                Add Members
-                            </button>
+                <div className="w-full md:w-80 flex-shrink-0 flex flex-col gap-6">
+                    <div className="sticky top-4 flex flex-col gap-6">
+                        {/* Users section */}
+                        <div className="bg-white shadow-md rounded-lg p-4">
+                        <GroupUsers users={users} />
+
+                        <button
+                            onClick={handleOpenUsersModal}
+                            className="mt-4 inline-flex items-center justify-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-md shadow-sm transition-colors duration-200 w-full"
+                        >
+                            Add Members
+                        </button>
                         </div>
+
+                        {/* Recent Transactions component */}
+                        <RecentTransactions users={users} refreshTransactions={refreshTransactions} />
                     </div>
-                    
-                    {/* Recent Transactions component */}
-                    <RecentTransactions 
-                        users={users} 
-                        refreshTransactions={refreshTransactions}
-                    />
+                    </div>
                 </div>
-            </div>
 
             {/* Users Modal */}
             {showUsersModal && (

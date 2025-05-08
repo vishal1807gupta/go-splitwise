@@ -16,25 +16,25 @@ import (
 func main() {
 	fmt.Println("Hello World")
 
+	// Set up CORS
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedOrigins:   []string{"http://localhost:3000", "https://go-splitwise.vercel.app"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type"},
+		AllowedHeaders:   []string{"Content-Type", "X-Auth-Token"},
 		AllowCredentials: true,
 	})
 
 	r := router.Router()
 
 	handler := c.Handler(r)
-	log.Fatal(http.ListenAndServe(":4000", handler))
-	fmt.Println("Listening at port 4000...")
 
-	ticker := time.NewTicker(24 * time.Hour) // Once per day
-	defer ticker.Stop()
+	ticker := time.NewTicker(24 * time.Hour)
 	go func() {
 		for range ticker.C {
 			controller.CleanupExpiredSessions()
 		}
 	}()
 
+	fmt.Println("Listening at port 4000...")
+	log.Fatal(http.ListenAndServe(":4000", handler))
 }

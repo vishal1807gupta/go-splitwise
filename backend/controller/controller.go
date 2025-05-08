@@ -25,25 +25,22 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-const (
-	host     = "localhost"
-	port     = 5432
-	user     = "postgres"
-	password = "Vishal#2002"
-	dbname   = "splitwise"
-)
-
 var db *sql.DB
 
 func init() {
-	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
 
-	var err error
-	db, err = sql.Open("postgres", psqlconn)
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file, using existing environment variables")
+	}
 
+	databaseURL := os.Getenv("DATABASE_URL")
+
+	db, err = sql.Open("postgres", databaseURL)
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println("Successfully connected!")
 
 	err = godotenv.Load()
@@ -59,6 +56,10 @@ type PasswordResetService struct {
 	codeTTL      time.Duration
 }
 
+type ReminderService struct {
+	emailService *email.EmailService
+}
+
 func generateSessionToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
@@ -72,15 +73,15 @@ func isValidEmail(email string) bool {
 
 func validateUserInput(user model.UserRequest, w http.ResponseWriter) bool {
 	if len(strings.TrimSpace(user.Name)) < 3 {
-		http.Error(w, "Name must be at least 3 characters", http.StatusBadRequest)
+		http.Error(w, "Name must be at least 3 characters long.", http.StatusBadRequest)
 		return false
 	}
 	if len(user.Password) < 6 {
-		http.Error(w, "Password must be at least 6 characters", http.StatusBadRequest)
+		http.Error(w, "Password must be at least 6 characters long.", http.StatusBadRequest)
 		return false
 	}
 	if !isValidEmail(user.Email) {
-		http.Error(w, "Invalid email", http.StatusBadRequest)
+		http.Error(w, "Please enter a valid email address.", http.StatusBadRequest)
 		return false
 	}
 	return true
@@ -149,7 +150,6 @@ func splitEqually(expense *model.Expense) error {
 func splitExactAmount(expense *model.Expense) error {
 	var sum int64 = 0
 	for _, share := range expense.Shares {
-		fmt.Println(share)
 		sum += int64(share.ShareAmount)
 	}
 	// fmt.Println(sum, expense.Amount)
@@ -213,7 +213,7 @@ func splitByPercentage(expense *model.Expense) error {
 }
 
 func calculateBalances(expense *model.Expense) error {
-	// Calculate balances based on the expense type and update the balances table
+
 	switch expense.ExpenseType {
 	case "EQUAL":
 		return splitEqually(expense)
@@ -245,6 +245,12 @@ func newPasswordResetService(emailService *email.EmailService) *PasswordResetSer
 	}
 }
 
+func newReminderService(emailService *email.EmailService) *ReminderService {
+	return &ReminderService{
+		emailService: emailService,
+	}
+}
+
 func savePasswordReset(reset model.PasswordReset) error {
 	query := `
 		INSERT INTO password_resets (user_id, email, code, expires_at, used)
@@ -255,7 +261,6 @@ func savePasswordReset(reset model.PasswordReset) error {
 }
 
 func (s *PasswordResetService) RequestPasswordReset(emailAddress string) error {
-	// First check if the user exists
 	user, err := getUserByEmail(emailAddress)
 	if err != nil {
 		return errors.New("user not found")
@@ -337,71 +342,63 @@ func (s *PasswordResetService) ValidateCodeAndResetPassword(email, code, newPass
 	// Get the most recent reset request for this email
 	reset, err := getLatestPasswordResetByEmail(email)
 	if err != nil {
-		return errors.New("invalid or expired reset request")
+		return errors.New("invalid or expired password reset request, please try again")
 	}
 
 	// Check if code is valid
 	if reset.Code != code {
-		return errors.New("invalid verification code")
+		return errors.New("the verification code you entered is invalid, please check and try again")
 	}
 
 	// Check if code is expired
 	if time.Now().After(reset.ExpiresAt) {
-		return errors.New("verification code expired")
+		return errors.New("this verification code has expired, please request a new code")
 	}
 
 	// Check if code was already used
 	if reset.Used {
-		return errors.New("verification code already used")
+		return errors.New("this verification code has already been used, please request a new code")
 	}
 
 	// Hash the new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 14)
 	if err != nil {
-		return errors.New("could not process password")
+		return errors.New("we couldn't process your password, please try a different password")
 	}
 
 	// Update user password in DB
 	if err := updateUserPassword(reset.UserID, string(hashedPassword)); err != nil {
-		return errors.New("failed to update password")
+		return errors.New("failed to update password, please try again later")
 	}
 
 	// Mark code as used
 	if err := markPasswordResetCodeAsUsed(reset.ID); err != nil {
-		// Log this error but continue
-		// log.Printf("Failed to mark code as used: %v", err)
+		return errors.New("failed to complete password reset, please try again")
 	}
 
 	return nil
 }
 
-// RequestPasswordResetHandler handles the password reset request from users
 func RequestPasswordResetHandler(w http.ResponseWriter, r *http.Request) {
 	var req model.RequestPasswordResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, "Invalid request. Please check your input and try again.", http.StatusBadRequest)
 		return
 	}
 
-	// Create email service
 	emailService, err := email.NewEmailService(
 		r.Context(),
 		os.Getenv("AWS_REGION"),
 		os.Getenv("EMAIL_SENDER"),
 	)
 	if err != nil {
-		http.Error(w, "Failed to initialize email service", http.StatusInternalServerError)
+		http.Error(w, "We're experiencing technical difficulties. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Create password reset service
 	resetService := newPasswordResetService(emailService)
-
-	// Request password reset
-	fmt.Println(req.Email)
 	err = resetService.RequestPasswordReset(req.Email)
 	if err != nil {
-		// Don't reveal if the email exists or not for security
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "Error",
@@ -415,29 +412,24 @@ func RequestPasswordResetHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ResetPasswordCompleteHandler handles the password reset completion
 func ResetPasswordCompleteHandler(w http.ResponseWriter, r *http.Request) {
 	var req model.ResetPasswordCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, "Invalid request. Please check your input and try again.", http.StatusBadRequest)
 		return
 	}
 
-	// Create email service
 	emailService, err := email.NewEmailService(
 		r.Context(),
 		os.Getenv("AWS_REGION"),
 		os.Getenv("EMAIL_SENDER"),
 	)
 	if err != nil {
-		http.Error(w, "Failed to initialize email service", http.StatusInternalServerError)
+		http.Error(w, "We're experiencing technical difficulties. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Create password reset service
 	resetService := newPasswordResetService(emailService)
-
-	// Reset password with verification code
 	err = resetService.ValidateCodeAndResetPassword(req.Email, req.Code, req.NewPassword)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -454,7 +446,7 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
 	var user model.UserRequest
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -464,14 +456,18 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		http.Error(w, "We're experiencing technical difficulties. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
 	query := `INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING user_id`
 	err = db.QueryRow(query, user.Name, user.Email, string(hashedPassword)).Scan(&user.UserID)
 	if err != nil {
-		http.Error(w, "Error inserting user: "+err.Error(), http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "duplicate key") {
+			http.Error(w, "This email address is already registered. Please use a different email or login to your account.", http.StatusInternalServerError)
+		} else {
+			http.Error(w, "We couldn't create your account. Please try again later.", http.StatusInternalServerError)
+		}
 		return
 	}
 	var registeredUser model.UserResponse
@@ -488,7 +484,7 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
 		sessionToken, registeredUser.UserID, expiresAt,
 	)
 	if err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		http.Error(w, "Failed to create session. Please try logging in again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -509,7 +505,7 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 	var user model.UserRequest
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -520,13 +516,13 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		user.Email).Scan(&registeredUser.UserID, &registeredUser.Name, &registeredUser.Email, &hashedPassword)
 
 	if err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		http.Error(w, "Invalid email or password. Please check your credentials and try again.", http.StatusUnauthorized)
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password))
 	if err != nil {
-		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		http.Error(w, "Invalid email or password. Please check your credentials and try again.", http.StatusUnauthorized)
 		return
 	}
 
@@ -544,7 +540,7 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		sessionToken, registeredUser.UserID, expiresAt,
 	)
 	if err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		http.Error(w, "Failed to create session. Please try logging in again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -570,7 +566,7 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := idtoken.Validate(r.Context(), body.Token, os.Getenv("GOOGLE_CLIENT_ID"))
 	if err != nil {
-		http.Error(w, "Invalid Google token", http.StatusUnauthorized)
+		http.Error(w, "Invalid Google authentication. Please try again or use a different login method.", http.StatusUnauthorized)
 		return
 	}
 
@@ -580,27 +576,24 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	name := claims["name"].(string)
 	googleID := claims["sub"].(string)
 
-	// ⬇️ Check if user exists in DB, else insert
-	fmt.Println("Google ID:", googleID)
 	var user model.UserResponse
 	err = db.QueryRow("SELECT user_id, name FROM users WHERE google_id = $1", googleID).Scan(&user.UserID, &user.Name)
 	if err == sql.ErrNoRows {
-		fmt.Println("User not found, creating new user")
 
 		err = db.QueryRow("SELECT user_id, name FROM users WHERE email = $1", email).Scan(&user.UserID, &user.Name)
 		if err == sql.ErrNoRows {
 			err = db.QueryRow("INSERT INTO users (name, email, google_id) VALUES ($1, $2, $3) RETURNING user_id, name", name, email, googleID).Scan(&user.UserID, &user.Name)
 			if err != nil {
-				http.Error(w, "Error inserting user: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to create account. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 		} else if err != nil {
-			http.Error(w, "Error fetching user: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to retrieve account information. Please try again later.", http.StatusInternalServerError)
 			return
 		} else {
 			_, err = db.Exec("UPDATE users SET google_id = $1 WHERE user_id = $2", googleID, user.UserID)
 			if err != nil {
-				http.Error(w, "Error updating user: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to update account. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 		}
@@ -616,7 +609,7 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		sessionToken, user.UserID, expiresAt,
 	)
 	if err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		http.Error(w, "Failed to create session. Please try logging in again.", http.StatusInternalServerError)
 		return
 	}
 
@@ -638,7 +631,6 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 func Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_token")
 	if err == nil {
-		// Delete the session from the database
 		_, _ = db.Exec("DELETE FROM sessions WHERE session_id = $1", cookie.Value)
 	}
 
@@ -702,12 +694,11 @@ func GetLoggedInUser(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message": "Session expired",
+			"message": "Your session has expired. Please log in again to continue.",
 		})
 		return
 	}
 
-	// Get user data from database
 	var user model.UserResponse
 	err = db.QueryRow("SELECT user_id, name, email FROM users WHERE user_id = $1", userID).Scan(
 		&user.UserID, &user.Name, &user.Email,
@@ -734,20 +725,19 @@ func UpdatePassword(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Error hashing password", http.StatusInternalServerError)
+		http.Error(w, "We're experiencing technical difficulties. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Update the user's password in the database
 	_, err = db.Exec("UPDATE users SET password = $1 WHERE email = $2", string(hashedPassword), input.Email)
 	if err != nil {
-		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		http.Error(w, "Failed to update password. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
@@ -771,14 +761,14 @@ func GetGroupDetailsByUserId(w http.ResponseWriter, r *http.Request) {
 	userID, err := strconv.Atoi(userIDStr)
 
 	if err != nil {
-		http.Error(w, "Invalid group_id", http.StatusBadRequest)
+		http.Error(w, "Invalid user ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
 	groups, err := fetchAllGroupsByUserID(int64(userID))
 
 	if err != nil {
-		http.Error(w, "Failed to fetch groups", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch your groups. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -791,31 +781,31 @@ func CreateGroup(w http.ResponseWriter, r *http.Request) {
 	userID, err := strconv.Atoi(userIDStr)
 
 	if err != nil {
-		http.Error(w, "Invalid user_id", http.StatusBadRequest)
+		http.Error(w, "Invalid user ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
 	var group model.Group
 	err = json.NewDecoder(r.Body).Decode(&group)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your group information and try again.", http.StatusBadRequest)
 		return
 	}
 
 	if len(strings.TrimSpace(group.GroupName)) < 3 {
-		http.Error(w, "GroupName must be at least 3 characters", http.StatusBadRequest)
+		http.Error(w, "Group name must be at least 3 characters long.", http.StatusBadRequest)
 		return
 	}
 
 	query := `INSERT INTO groups (name) VALUES ($1) RETURNING group_id`
 	err = db.QueryRow(query, group.GroupName).Scan(&group.GroupID)
 	if err != nil {
-		http.Error(w, "Error inserting group: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to create group. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	err = insertUserIntoGroup(int(group.GroupID), int64(userID))
 	if err != nil {
-		http.Error(w, "Error inserting user into group: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to add you to the group. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -831,19 +821,19 @@ func AddUsersToGroup(w http.ResponseWriter, r *http.Request) {
 	groupID, err := strconv.Atoi(groupIDStr)
 
 	if err != nil {
-		http.Error(w, "Invalid group_id", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&groupUsers); err != nil {
-		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 
 	for _, userID := range groupUsers.UserIDs {
 		err := insertUserIntoGroup(groupID, userID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Error adding user %d to group", userID), http.StatusInternalServerError)
+			http.Error(w, "Failed to add users to the group. Please try again later.", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -862,7 +852,7 @@ func GetGroupUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query("SELECT u.user_id, u.name, u.email FROM users u JOIN group_users gu ON u.user_id = gu.user_id WHERE gu.group_id = $1", groupID)
 	if err != nil {
-		http.Error(w, "Failed to fetch group users", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch group members. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -872,7 +862,7 @@ func GetGroupUsers(w http.ResponseWriter, r *http.Request) {
 		var u model.UserResponse
 		err := rows.Scan(&u.UserID, &u.Name, &u.Email)
 		if err != nil {
-			http.Error(w, "Failed to scan group users", http.StatusInternalServerError)
+			http.Error(w, "Failed to process group members. Please try again later.", http.StatusInternalServerError)
 			return
 		}
 		users = append(users, u)
@@ -893,7 +883,7 @@ func GetNotGroupUsers(w http.ResponseWriter, r *http.Request) {
 		WHERE group_id = $1
 	)`, groupID)
 	if err != nil {
-		http.Error(w, "Failed to fetch group users", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch available users. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -903,7 +893,7 @@ func GetNotGroupUsers(w http.ResponseWriter, r *http.Request) {
 		var u model.UserResponse
 		err := rows.Scan(&u.UserID, &u.Name, &u.Email)
 		if err != nil {
-			http.Error(w, "Failed to scan group users", http.StatusInternalServerError)
+			http.Error(w, "Failed to process available users. Please try again later.", http.StatusInternalServerError)
 			return
 		}
 		users = append(users, u)
@@ -913,37 +903,42 @@ func GetNotGroupUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func AddExpense(w http.ResponseWriter, r *http.Request) {
-	// fmt.Println("Hello")
 	var expense model.Expense
 	err := json.NewDecoder(r.Body).Decode(&expense)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid expense data. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
-	// fmt.Println(err)
 	vars := mux.Vars(r)
 	groupID := vars["groupId"]
 
 	query := `INSERT INTO items (group_id, amount, paid_by, description) VALUES ($1, $2, $3, $4) RETURNING item_id`
 	err = db.QueryRow(query, groupID, expense.Amount, expense.PayerID, expense.Description).Scan(&expense.ExpenseID)
 	if err != nil {
-		http.Error(w, "Error inserting expense: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to create expense. Please try again later.", http.StatusInternalServerError)
 		return
 	}
-	// fmt.Println(err)
+
 	err = calculateBalances(&expense)
-	// fmt.Println(err)
+
 	if err != nil {
 		query = `DELETE FROM items WHERE item_id = $1`
 		_, newErr := db.Exec(query, expense.ExpenseID)
 		if newErr != nil {
-			http.Error(w, "Error inserting expense: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "An error occurred while processing your expense. Please try again later.", http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, "Error calculating balances: "+err.Error(), http.StatusInternalServerError)
+
+		if strings.Contains(err.Error(), "sum of shares is not equal to the amount") {
+			http.Error(w, "The sum of individual shares must equal the total amount.", http.StatusInternalServerError)
+		} else if strings.Contains(err.Error(), "sum of shares is not equal to 100") {
+			http.Error(w, "When splitting by percentage, all percentages must add up to 100%.", http.StatusInternalServerError)
+		} else {
+			http.Error(w, "Failed to calculate balances. Please check your expense details and try again.", http.StatusInternalServerError)
+		}
 		return
 	}
-	// fmt.Println(err)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(expense)
 }
@@ -954,7 +949,7 @@ func GetItemsByGroupId(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query("SELECT item_id, amount, paid_by, description, created_at FROM items WHERE group_id = $1", groupID)
 	if err != nil {
-		http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch expenses. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -964,19 +959,19 @@ func GetItemsByGroupId(w http.ResponseWriter, r *http.Request) {
 		var item model.Expense
 		err := rows.Scan(&item.ExpenseID, &item.Amount, &item.PayerID, &item.Description, &item.Created_at)
 		if err != nil {
-			http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+			http.Error(w, "Failed to process expenses. Please try again later.", http.StatusInternalServerError)
 			return
 		}
 		cols, er := db.Query("SELECT user_id, share FROM item_splits WHERE item_id = $1", item.ExpenseID)
 		if er != nil {
-			http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+			http.Error(w, "Failed to fetch expense details. Please try again later.", http.StatusInternalServerError)
 			return
 		}
 		for cols.Next() {
 			var userShare model.UserShare
 			err := cols.Scan(&userShare.UserID, &userShare.ShareAmount)
 			if err != nil {
-				http.Error(w, "Failed to scan item splits", http.StatusInternalServerError)
+				http.Error(w, "Failed to process expense shares. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 			item.Shares = append(item.Shares, userShare)
@@ -993,19 +988,19 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 	userIDStr := vars["userId"]
 	groupID, err := strconv.Atoi(groupIDStr)
 	if err != nil {
-		http.Error(w, "Invalid group_id", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
-		http.Error(w, "Invalid user_id", http.StatusBadRequest)
+		http.Error(w, "Invalid user ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
 	var users model.UserIDsInput
 	err = json.NewDecoder(r.Body).Decode(&users)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid input. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 
@@ -1015,7 +1010,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 		if uID != int64(userID) {
 			rows, err := db.Query("SELECT item_id FROM items WHERE group_id = $1 AND paid_by = $2", groupID, uID)
 			if err != nil {
-				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				http.Error(w, "Failed to calculate settlements. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 			defer rows.Close()
@@ -1023,7 +1018,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				err := rows.Scan(&itemID)
 				if err != nil {
-					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					http.Error(w, "Failed to process expense data. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				var shareAmount int64
@@ -1032,7 +1027,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 				if err == sql.ErrNoRows {
 					continue
 				} else if err != nil {
-					http.Error(w, "Failed to scan item splits", http.StatusInternalServerError)
+					http.Error(w, "Failed to process expense shares. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				totalAmount += shareAmount
@@ -1040,7 +1035,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 
 			rows, err = db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3", groupID, userID, uID)
 			if err != nil {
-				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				http.Error(w, "Failed to fetch transaction data. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 			defer rows.Close()
@@ -1049,7 +1044,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				err := rows.Scan(&amount)
 				if err != nil {
-					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					http.Error(w, "Failed to process transaction data. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				totalAmount -= amount
@@ -1057,14 +1052,14 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 
 			rows, err = db.Query("SELECT item_id FROM items WHERE group_id = $1 AND paid_by = $2", groupID, userID)
 			if err != nil {
-				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				http.Error(w, "Failed to fetch expense data. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 			defer rows.Close()
 			for rows.Next() {
 				err := rows.Scan(&itemID)
 				if err != nil {
-					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					http.Error(w, "Failed to process expense data. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				var shareAmount int64
@@ -1073,7 +1068,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 				if err == sql.ErrNoRows {
 					continue
 				} else if err != nil {
-					http.Error(w, "Failed to scan item splits", http.StatusInternalServerError)
+					http.Error(w, "Failed to process expense shares. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				totalAmount -= shareAmount
@@ -1081,7 +1076,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 
 			rows, err = db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3", groupID, uID, userID)
 			if err != nil {
-				http.Error(w, "Failed to fetch items", http.StatusInternalServerError)
+				http.Error(w, "Failed to fetch transaction data. Please try again later.", http.StatusInternalServerError)
 				return
 			}
 			defer rows.Close()
@@ -1089,7 +1084,7 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				err := rows.Scan(&amount)
 				if err != nil {
-					http.Error(w, "Failed to scan items", http.StatusInternalServerError)
+					http.Error(w, "Failed to process transaction data. Please try again later.", http.StatusInternalServerError)
 					return
 				}
 				totalAmount += amount
@@ -1104,18 +1099,15 @@ func GetSettlements(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetMemoriesHandler(w http.ResponseWriter, r *http.Request) {
-	// Set content type
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get groupId from URL parameters
 	vars := mux.Vars(r)
 	groupId, err := strconv.Atoi(vars["groupId"])
 	if err != nil {
-		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
-	// Query database for memories
 	rows, err := db.Query(`
 		SELECT id, group_id, filename, image_url, created_at 
 		FROM memories 
@@ -1123,12 +1115,11 @@ func GetMemoriesHandler(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC`, groupId)
 	if err != nil {
 		log.Printf("Error querying memories: %v", err)
-		http.Error(w, "Failed to fetch memories", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch memories. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	// Parse rows into memories slice
 	var memories []model.Memory
 	for rows.Next() {
 		var memory model.Memory
@@ -1147,14 +1138,12 @@ func GetMemoriesHandler(w http.ResponseWriter, r *http.Request) {
 		memories = append(memories, memory)
 	}
 
-	// Check for errors during row iteration
 	if err = rows.Err(); err != nil {
 		log.Printf("Error iterating memory rows: %v", err)
-		http.Error(w, "Error fetching memories", http.StatusInternalServerError)
+		http.Error(w, "Error fetching memories. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Return memories as JSON
 	response := model.MemoryResponse{
 		Success:  true,
 		Memories: memories,
@@ -1162,9 +1151,7 @@ func GetMemoriesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// uploadMemoryHandler handles file uploads for memories
 func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
-	// Set content type
 	w.Header().Set("Content-Type", "application/json")
 
 	r2Storage, err := cloudfareR2.NewR2Storage(
@@ -1177,37 +1164,33 @@ func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("Failed to initialize R2 storage: %v", err)
 	}
 
-	// Parse multipart form with 5MB limit
 	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		http.Error(w, "File too large. Maximum size is 5MB", http.StatusBadRequest)
+		http.Error(w, "The file you uploaded is too large. Please upload an image smaller than 5MB.", http.StatusBadRequest)
 		return
 	}
 
-	// Get form values
 	groupIdStr := r.FormValue("groupId")
 	if groupIdStr == "" {
-		http.Error(w, "Missing group ID", http.StatusBadRequest)
+		http.Error(w, "Missing group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
 	groupId, err := strconv.Atoi(groupIdStr)
 	if err != nil {
-		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
-	// Get file from form
 	file, fileHeader, err := r.FormFile("image")
 	if err != nil {
-		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		http.Error(w, "Error retrieving file. Please try again.", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Validate file type
 	contentType := fileHeader.Header.Get("Content-Type")
 	if !isValidImageType(contentType) {
-		http.Error(w, "Invalid file type. Only images are allowed", http.StatusBadRequest)
+		http.Error(w, "Please select a valid image file (JPEG, PNG, GIF, WebP, BMP, or TIFF).", http.StatusBadRequest)
 		return
 	}
 
@@ -1215,11 +1198,10 @@ func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
 	filename, imageURL, err := r2Storage.UploadFile(file, fileHeader)
 	if err != nil {
 		log.Printf("Error uploading file to R2: %v", err)
-		http.Error(w, "Error uploading file", http.StatusInternalServerError)
+		http.Error(w, "Failed to upload your image. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Insert into database
 	var memory model.Memory
 	err = db.QueryRow(`
 		INSERT INTO memories (group_id, filename, image_url, created_at)
@@ -1238,11 +1220,10 @@ func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
 		if delErr := r2Storage.DeleteFile(filename); delErr != nil {
 			log.Printf("Error deleting file from R2 after DB insert failed: %v", delErr)
 		}
-		http.Error(w, "Error saving memory", http.StatusInternalServerError)
+		http.Error(w, "Failed to save memory. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Return the memory as JSON
 	response := model.MemoryResponse{
 		Success: true,
 		Message: "Memory uploaded successfully",
@@ -1251,9 +1232,7 @@ func UploadMemoryHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// deleteMemoryHandler deletes a memory
 func DeleteMemoryHandler(w http.ResponseWriter, r *http.Request) {
-	// Set content type
 	w.Header().Set("Content-Type", "application/json")
 
 	r2Storage, err := cloudfareR2.NewR2Storage(
@@ -1266,41 +1245,35 @@ func DeleteMemoryHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("Failed to initialize R2 storage: %v", err)
 	}
 
-	// Get memoryId from URL parameters
 	vars := mux.Vars(r)
 	memoryId, err := strconv.Atoi(vars["memoryId"])
 	if err != nil {
-		http.Error(w, "Invalid memory ID", http.StatusBadRequest)
+		http.Error(w, "Invalid memory ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
-	// In a real app, you'd verify the user has permission to delete this memory
-	// For simplicity, we're skipping that check here
-
-	// Get the memory filename first before deleting
 	var filename string
 	err = db.QueryRow("SELECT filename FROM memories WHERE id = $1", memoryId).Scan(&filename)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Memory not found", http.StatusNotFound)
+			http.Error(w, "Memory not found or already deleted.", http.StatusNotFound)
 		} else {
 			log.Printf("Error fetching memory: %v", err)
-			http.Error(w, "Error fetching memory", http.StatusInternalServerError)
+			http.Error(w, "Failed to retrieve memory information. Please try again later.", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	// Delete from database
 	result, err := db.Exec("DELETE FROM memories WHERE id = $1", memoryId)
 	if err != nil {
 		log.Printf("Error deleting memory from database: %v", err)
-		http.Error(w, "Error deleting memory", http.StatusInternalServerError)
+		http.Error(w, "Failed to delete memory. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		http.Error(w, "Memory not found", http.StatusNotFound)
+		http.Error(w, "Memory not found or already deleted.", http.StatusNotFound)
 		return
 	}
 
@@ -1310,7 +1283,6 @@ func DeleteMemoryHandler(w http.ResponseWriter, r *http.Request) {
 		// Continue anyway, as the database record is already deleted
 	}
 
-	// Return success response
 	response := model.MemoryResponse{
 		Success: true,
 		Message: "Memory deleted successfully",
@@ -1318,7 +1290,6 @@ func DeleteMemoryHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// Helper function to validate image types
 func isValidImageType(contentType string) bool {
 	validTypes := map[string]bool{
 		"image/jpeg": true,
@@ -1332,18 +1303,15 @@ func isValidImageType(contentType string) bool {
 }
 
 func GetTransactions(w http.ResponseWriter, r *http.Request) {
-	// Set content type
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get groupId from URL parameters
 	vars := mux.Vars(r)
 	groupId, err := strconv.Atoi(vars["groupId"])
 	if err != nil {
-		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 
-	// Query database for transactions
 	rows, err := db.Query(`
 		SELECT id, user_id, payer_id, group_id, amount, created_at 
 		FROM transactions 
@@ -1351,12 +1319,11 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC`, groupId)
 	if err != nil {
 		log.Printf("Error querying transactions: %v", err)
-		http.Error(w, "Failed to fetch transactions", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch transactions. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	// Parse rows into transactions slice
 	var transactions []model.Transactions
 	for rows.Next() {
 		var transaction model.Transactions
@@ -1376,39 +1343,336 @@ func GetTransactions(w http.ResponseWriter, r *http.Request) {
 		transactions = append(transactions, transaction)
 	}
 
-	// Check for errors during row iteration
 	if err = rows.Err(); err != nil {
 		log.Printf("Error iterating transaction rows: %v", err)
-		http.Error(w, "Error fetching transactions", http.StatusInternalServerError)
+		http.Error(w, "Error fetching transactions. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 
-	// Return transactions as JSON
 	json.NewEncoder(w).Encode(transactions)
 }
 
 func InsertTransactions(w http.ResponseWriter, r *http.Request) {
-	// Set content type
 	w.Header().Set("Content-Type", "application/json")
-	// Get groupId from URL parameters
+
 	vars := mux.Vars(r)
 	groupId, err := strconv.Atoi(vars["groupId"])
 	if err != nil {
-		http.Error(w, "Invalid group ID", http.StatusBadRequest)
+		http.Error(w, "Invalid group ID. Please try again.", http.StatusBadRequest)
 		return
 	}
 	var transaction model.Transactions
 	err = json.NewDecoder(r.Body).Decode(&transaction)
 	if err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid transaction data. Please check your information and try again.", http.StatusBadRequest)
 		return
 	}
 	transaction.GroupID = int64(groupId)
 	query := `INSERT INTO transactions (user_id, payer_id, group_id, amount) VALUES ($1, $2, $3, $4) RETURNING id`
 	err = db.QueryRow(query, transaction.UserID, transaction.PayerID, groupId, transaction.Amount).Scan(&transaction.ID)
 	if err != nil {
-		http.Error(w, "Error inserting transaction: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to record transaction. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(transaction)
+}
+
+func (s *ReminderService) SendMonthlyBalanceReminders() {
+	log.Println("Starting monthly balance reminder job")
+	startTime := time.Now()
+
+	// Create a job record
+	jobID, err := logReminderJob("monthly_balance", "running") // inserting new job in db (jobtype, status)
+	if err != nil {
+		log.Printf("Error logging reminder job: %v", err)
+	}
+
+	rows, err := db.Query("SELECT user_id, name, email FROM users")
+	if err != nil {
+		log.Printf("Error fetching users: %v", err)
+		updateReminderJob(jobID, "failed", err.Error(), 0, 0)
+		return
+	}
+	defer rows.Close()
+
+	var users []model.UserResponse
+
+	for rows.Next() {
+		var user model.UserResponse
+		if err := rows.Scan(&user.UserID, &user.Name, &user.Email); err != nil {
+			log.Printf("Error scanning user: %v", err)
+			continue
+		}
+		users = append(users, user)
+	}
+
+	successCount := 0
+	errorCount := 0
+
+	for _, user := range users {
+		groups, err := fetchAllGroupsByUserID(user.UserID)
+		if err != nil {
+			log.Printf("Error fetching groups for user %d: %v", user.UserID, err)
+			errorCount++
+			continue
+		}
+
+		var allBalances []model.Balance
+
+		for _, group := range groups {
+			otherUsers, err := getGroupUserIDs(int(group.GroupID), user.UserID)
+			if err != nil {
+				log.Printf("Error fetching group users: %v", err)
+				continue
+			}
+
+			if len(otherUsers) == 0 {
+				continue
+			}
+
+			settlements, err := calculateSettlements(int(group.GroupID), int(user.UserID), otherUsers)
+			if err != nil {
+				log.Printf("Error calculating settlements: %v", err)
+				continue
+			}
+
+			for _, settlement := range settlements {
+				var otherUserName string
+				err := db.QueryRow("SELECT name FROM users WHERE user_id = $1", settlement.UserID).Scan(&otherUserName)
+				if err != nil {
+					log.Printf("Error fetching user name: %v", err)
+					continue
+				}
+
+				balance := model.Balance{
+					OtherUserID:   settlement.UserID,
+					OtherUserName: otherUserName,
+					Amount:        settlement.ShareAmount,
+					GroupName:     group.GroupName,
+				}
+
+				allBalances = append(allBalances, balance)
+			}
+		}
+
+		if len(allBalances) == 0 {
+			continue
+		}
+
+		err = s.emailService.SendMonthlyBalanceReminder(user.Email, user.Name, allBalances)
+		if err != nil {
+			log.Printf("Error sending reminder to %s: %v", user.Email, err)
+			errorCount++
+		} else {
+			// Log that reminder was sent
+			err = logReminderSent(user.UserID, "monthly_balance")
+			if err != nil {
+				log.Printf("Error logging reminder: %v", err)
+			}
+			successCount++
+		}
+
+		// Add a small delay to avoid SES rate limiting
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	duration := time.Since(startTime)
+	log.Printf("Completed monthly balance reminder job. Success: %d, Errors: %d, Duration: %v",
+		successCount, errorCount, duration)
+
+	updateReminderJob(jobID, "completed", "", successCount, errorCount)
+}
+
+func getGroupUserIDs(groupID int, excludeUserID int64) ([]int64, error) {
+	rows, err := db.Query(`
+		SELECT user_id 
+		FROM group_users 
+		WHERE group_id = $1 AND user_id != $2`,
+		groupID, excludeUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []int64
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+
+	return userIDs, rows.Err()
+}
+
+func calculateSettlements(groupID, userID int, otherUserIDs []int64) ([]model.UserShare, error) {
+	var settlements []model.UserShare
+
+	for _, otherUserID := range otherUserIDs {
+		var totalAmount int64 = 0
+
+		rows1, err := db.Query("SELECT item_id FROM items WHERE group_id = $1 AND paid_by = $2",
+			groupID, otherUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch items: %w", err)
+		}
+		defer rows1.Close()
+
+		for rows1.Next() {
+			var itemID int64
+			if err := rows1.Scan(&itemID); err != nil {
+				return nil, fmt.Errorf("failed to scan items: %w", err)
+			}
+
+			var shareAmount int64
+			err = db.QueryRow("SELECT share FROM item_splits WHERE item_id = $1 AND user_id = $2",
+				itemID, int64(userID)).Scan(&shareAmount)
+
+			if err == sql.ErrNoRows {
+				continue
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to get share: %w", err)
+			}
+
+			totalAmount += shareAmount
+		}
+
+		rows2, err := db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3",
+			groupID, userID, otherUserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch transactions: %w", err)
+		}
+		defer rows2.Close()
+
+		for rows2.Next() {
+			var amount int64
+			if err := rows2.Scan(&amount); err != nil {
+				return nil, fmt.Errorf("failed to scan transactions: %w", err)
+			}
+			totalAmount -= amount
+		}
+
+		rows3, err := db.Query("SELECT item_id FROM items WHERE group_id = $1 AND paid_by = $2",
+			groupID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch items: %w", err)
+		}
+		defer rows3.Close()
+
+		for rows3.Next() {
+			var itemID int64
+			if err := rows3.Scan(&itemID); err != nil {
+				return nil, fmt.Errorf("failed to scan items: %w", err)
+			}
+
+			var shareAmount int64
+			err = db.QueryRow("SELECT share FROM item_splits WHERE item_id = $1 AND user_id = $2",
+				itemID, otherUserID).Scan(&shareAmount)
+
+			if err == sql.ErrNoRows {
+				continue
+			} else if err != nil {
+				return nil, fmt.Errorf("failed to get share: %w", err)
+			}
+
+			totalAmount -= shareAmount
+		}
+
+		rows4, err := db.Query("SELECT amount FROM transactions WHERE group_id = $1 AND user_id = $2 AND payer_id = $3",
+			groupID, otherUserID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch transactions: %w", err)
+		}
+		defer rows4.Close()
+
+		for rows4.Next() {
+			var amount int64
+			if err := rows4.Scan(&amount); err != nil {
+				return nil, fmt.Errorf("failed to scan transactions: %w", err)
+			}
+			totalAmount += amount
+		}
+
+		if totalAmount != 0 {
+			settlements = append(settlements, model.UserShare{
+				UserID:      otherUserID,
+				ShareAmount: totalAmount,
+			})
+		}
+	}
+
+	return settlements, nil
+}
+
+// logReminderJob records the start of a reminder job
+func logReminderJob(jobType, status string) (int64, error) {
+	query := `
+		INSERT INTO reminder_jobs (job_type, status, started_at)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`
+
+	var jobID int64
+	err := db.QueryRow(query, jobType, status, time.Now()).Scan(&jobID)
+	return jobID, err
+}
+
+// updateReminderJob updates the status of a reminder job
+func updateReminderJob(jobID int64, status, errorMsg string, success, failed int) error {
+	query := `
+		UPDATE reminder_jobs
+		SET status = $2, error = $3, success_count = $4, error_count = $5, completed_at = $6
+		WHERE id = $1
+	`
+
+	_, err := db.Exec(query, jobID, status, errorMsg, success, failed, time.Now())
+	return err
+}
+
+// logReminderSent records that a reminder was sent to a user
+func logReminderSent(userID int64, reminderType string) error {
+	query := `
+		INSERT INTO reminder_logs (user_id, reminder_type, sent_at)
+		VALUES ($1, $2, $3)
+	`
+
+	_, err := db.Exec(query, userID, reminderType, time.Now())
+	return err
+}
+
+func TriggerMonthlyReminders(w http.ResponseWriter, r *http.Request) {
+
+	authToken := r.Header.Get("X-Auth-Token")
+	expectedToken := os.Getenv("AUTH_TOKEN")
+
+	if expectedToken == "" {
+		log.Println("Warning: AUTH_TOKEN environment variable not set")
+	} else if authToken != expectedToken {
+		log.Printf("Unauthorized access attempt with token: %s", authToken)
+		http.Error(w, "Unauthorized access. Please check your credentials and try again.", http.StatusUnauthorized)
+		return
+	}
+
+	emailService, err := email.NewEmailService(
+		r.Context(),
+		os.Getenv("AWS_REGION"),
+		os.Getenv("EMAIL_SENDER"),
+	)
+	if err != nil {
+		log.Printf("Error initializing email service: %v", err)
+		http.Error(w, "Failed to initialize email service", http.StatusInternalServerError)
+		return
+	}
+
+	reminderService := newReminderService(emailService)
+
+	go func() {
+		log.Println("Starting monthly balance reminder job triggered by AWS Lambda")
+		reminderService.SendMonthlyBalanceReminders()
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"message":"Monthly balance reminder job started"}`)
 }

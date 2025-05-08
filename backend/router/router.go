@@ -9,7 +9,6 @@ import (
 func Router() *mux.Router {
 	r := mux.NewRouter()
 
-	// Define routes
 	r.HandleFunc("/api/register", controller.RegisterUser).Methods("POST")
 	r.HandleFunc("/api/login", controller.LoginUser).Methods("POST")
 	r.HandleFunc("/api/groupdetails/{userId}", controller.GetGroupDetailsByUserId).Methods("GET")
@@ -31,6 +30,7 @@ func Router() *mux.Router {
 	r.HandleFunc("/api/memories/{memoryId}", controller.DeleteMemoryHandler).Methods("DELETE")
 	r.HandleFunc("/api/getTransactions/{groupId}", controller.GetTransactions).Methods("GET")
 	r.HandleFunc("/api/insertTransactions/{groupId}", controller.InsertTransactions).Methods("POST")
+	r.HandleFunc("/api/trigger-monthly-reminders", controller.TriggerMonthlyReminders).Methods("POST")
 
 	return r
 }

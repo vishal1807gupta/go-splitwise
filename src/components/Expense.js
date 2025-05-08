@@ -8,13 +8,88 @@ const Expense = ({ users, groupId, onExpenseAdded, onCancel }) => {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [toast, setToast] = useState({ show: false, message: "", type: "" });
 
   if (!users) return null;
 
+  const findUserName = (userId) => {
+    const user = users.find(u => u.id === userId);
+    return user ? user.name : `User ${userId}`;
+  };
+
+  // Show toast notification instead of alert
+  const showToast = (message, type = "error") => {
+    setToast({ show: true, message, type });
+    
+    // Automatically hide toast after 5 seconds
+    setTimeout(() => {
+      setToast({ show: false, message: "", type: "" });
+    }, 5000);
+  };
+
+  const validateExpense = (description, amount, payerId, expenseType, checkedUsers) => {
+      if (!description || description.trim().length < 3) {
+        return "Description must be at least 3 characters long.";
+      }
+      const amountNum = parseInt(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return "Amount must be a positive number.";
+      }
+      if (!payerId) {
+        return "Please select a payer for this expense.";
+      }
+      if (!expenseType) {
+        return "Please select an expense type.";
+      }
+      if (checkedUsers.length === 0) {
+        return "Please select at least one user to share the expense with.";
+    }
+    
+    return null;
+  };
+
+  const validateShares = (expenseType, totalAmount, checkedUsers) => {
+    if(expenseType==="EQUAL")return;
+    let sum = 0;
+    let error = 0;
+    checkedUsers.forEach((userId) => {
+      const shareInput = document.getElementById(`amount-${userId}`);
+      const shareAmount = parseInt(shareInput.value);
+      
+      if (isNaN(shareAmount) || shareAmount <= 0) {
+        error=userId;
+      }
+      
+      sum += shareAmount;
+    });
+
+    if(error)return `Invalid share amount for user ${findUserName(error)}. Must be a positive integer.`;
+    
+    if (expenseType === "EXACT") {
+      const totalAmountNum = parseInt(totalAmount);
+      if (sum !== totalAmountNum) {
+        return `The sum of share amounts ${sum.toFixed(2)} must equal the total amount ${totalAmountNum.toFixed(2)}.`;
+      }
+    } 
+    else if (expenseType === "PERCENTAGE") {
+      if (sum!==100) {
+        return `The sum of percentages (${sum.toFixed(2)}) must equal 100%.`;
+      }
+    }
+    
+    return null;
+  };
+
   const handleSubmit = async () => {
-    // Validate form
-    if (!description || !amount || !payerId || !expenseType || checkedUsers.length === 0) {
-      alert("Please fill all required fields and select at least one user");
+    const error = validateExpense(description, amount, payerId, expenseType, checkedUsers);
+    if (error) {
+      showToast(error);
+      return;
+    }
+    
+    const sharesError = validateShares(expenseType, amount, checkedUsers);
+    if (sharesError) {
+      showToast(sharesError);
       return;
     }
 
@@ -51,7 +126,7 @@ const Expense = ({ users, groupId, onExpenseAdded, onCancel }) => {
       if (onExpenseAdded) {
         onExpenseAdded();
       } else {
-        alert("Expense added successfully!");
+        showToast("Expense added successfully!", "success");
         
         // Reset form if not being closed
         setCheckedUsers([]);
@@ -60,8 +135,7 @@ const Expense = ({ users, groupId, onExpenseAdded, onCancel }) => {
       }
       
     } catch (error) {
-      console.error("Error adding expense:", error);
-      alert("Failed to add expense. Please try again.");
+      showToast(error.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +152,51 @@ const Expense = ({ users, groupId, onExpenseAdded, onCancel }) => {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 relative">
+      {/* Toast Notification */}
+      {toast.show && (
+        <div 
+          className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-md animate-fade-in ${
+            toast.type === "success" ? "bg-green-50 border-l-4 border-green-500" : "bg-red-50 border-l-4 border-red-500"
+          }`}
+        >
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {toast.type === "success" ? (
+                <svg className="h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg className="h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              )}
+            </div>
+            <div className="ml-3">
+              <p className={`text-sm font-medium ${toast.type === "success" ? "text-green-800" : "text-red-800"}`}>
+                {toast.message}
+              </p>
+            </div>
+            <div className="ml-auto pl-3">
+              <div className="-mx-1.5 -my-1.5">
+                <button
+                  onClick={() => setToast({ show: false, message: "", type: "" })}
+                  className={`inline-flex rounded-md p-1.5 ${
+                    toast.type === "success" 
+                      ? "bg-green-50 text-green-500 hover:bg-green-100" 
+                      : "bg-red-50 text-red-500 hover:bg-red-100"
+                  }`}
+                >
+                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Two columns for top form elements */}
       <div className="grid grid-cols-2 gap-3">
         {/* Description - Full width */}
