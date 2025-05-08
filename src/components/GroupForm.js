@@ -10,7 +10,7 @@ const GroupForm = ({ onSuccess, onClose }) => {
         console.log(groupName);
         
         try {
-            const response = await fetch(`http://localhost:4000/api/creategroup/${currentUser.id}`, {
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/creategroup/${currentUser.id}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

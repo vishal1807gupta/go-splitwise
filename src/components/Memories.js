@@ -18,7 +18,7 @@ const Memories = ({ groupId, onMemoryAdded }) => {
         setLoading(true);
         try {
             // Replace with your actual API endpoint
-            const response = await fetch(`http://localhost:4000/api/memories/${groupId}`);
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/memories/${groupId}`);
             if (!response.ok) {
                 throw new Error('Failed to fetch memories');
             }
@@ -35,7 +35,7 @@ const Memories = ({ groupId, onMemoryAdded }) => {
     const handleDeleteMemory = async (memoryId) => {
         setIsDeleting(true);
         try {
-            const response = await fetch(`http://localhost:4000/api/memories/${memoryId}`, {
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/memories/${memoryId}`, {
                 method: 'DELETE',
             });
             

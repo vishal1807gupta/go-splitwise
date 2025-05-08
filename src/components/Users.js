@@ -26,7 +26,7 @@ const Users = ({ groupId: propGroupId, inModal = false, onUsersAdded, onCancel }
 
     const AddUsersToGroup = async () => {
         try {
-            const response = await fetch(`http://localhost:4000/api/addUsersToGroup/${groupId}`, {
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/addUsersToGroup/${groupId}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -51,7 +51,7 @@ const Users = ({ groupId: propGroupId, inModal = false, onUsersAdded, onCancel }
         setLoading(true);
         const fetchGroupUsers = async () => {
             try {
-                const response = await fetch(`http://localhost:4000/api/notGroupUsers/${groupId}`);
+                const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/notGroupUsers/${groupId}`);
                 const data = await response.json();
                 setUsers(data);
             } catch (error) {

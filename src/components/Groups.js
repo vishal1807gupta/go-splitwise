@@ -14,7 +14,7 @@ const Groups = () => {
     const fetchGroups = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`http://localhost:4000/api/groupdetails/${userId}`);
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/groupdetails/${userId}`);
             const data = await response.json();
             setGroups(data);
         } catch (error) {

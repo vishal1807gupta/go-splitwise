@@ -49,10 +49,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
-        const response = await fetch("http://localhost:4000/api/me", {
+        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/me`, {
           method: "GET",
           credentials: "include", // Important for cookies
         });
+
+        console.log(response);
 
         if (response.ok) {
           const data = await response.json();
@@ -73,7 +75,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password, rememberMe) => {
     try {
-      const response = await fetch("http://localhost:4000/api/login", {
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -108,7 +110,7 @@ export const AuthProvider = ({ children }) => {
     const passwordError = validatePassword(password);
     if (passwordError) throw new Error(passwordError);
     try {
-      const response = await fetch("http://localhost:4000/api/register", {
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -137,11 +139,11 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await fetch("http://localhost:4000/api/logout", {
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/logout`, {
         method: "POST",
         credentials: "include",
       });
-      
+      console.log(response);
       setCurrentUser(null);
     } catch (error) {
       console.error("Logout failed:", error);
@@ -153,7 +155,7 @@ export const AuthProvider = ({ children }) => {
     const emailError = validateEmail(email);
     if (emailError) throw new Error(emailError);
     try {
-      const response = await axios.post('http://localhost:4000/api/auth/request-password-reset', { email });
+      const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/auth/request-password-reset`, { email });
       return response.data;
     } catch (error) {
       if (error.response?.status === 404) {
@@ -179,7 +181,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      const response = await axios.post('http://localhost:4000/api/auth/reset-password-complete', {
+      const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/auth/reset-password-complete`, {
         email,
         code,
         newPassword

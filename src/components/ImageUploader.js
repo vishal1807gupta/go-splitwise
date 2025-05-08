@@ -56,7 +56,7 @@ const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
         
         try {
             // Replace with your actual API endpoint
-            const response = await fetch('http://localhost:4000/api/memories/upload', {
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/memories/upload`, {
                 method: 'POST',
                 body: formData,
             });

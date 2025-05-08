@@ -18,7 +18,7 @@ const Settlements = ({ groupId, users, refreshItems, setRefreshTransactions }) =
     setIsLoading(true);
     try {
       const response = await fetch(
-        `http://localhost:4000/api/settlements/${groupId}/${currentUser.id}`,
+        `${process.env.REACT_APP_BACKEND_URL}/api/settlements/${groupId}/${currentUser.id}`,
         {
           method: "POST",
           headers: {
@@ -54,7 +54,7 @@ const Settlements = ({ groupId, users, refreshItems, setRefreshTransactions }) =
     
     try {
       // Replace with your actual API endpoint for settling up
-      const response = await fetch(`http://localhost:4000/api/insertTransactions/${groupId}`, {
+      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/insertTransactions/${groupId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

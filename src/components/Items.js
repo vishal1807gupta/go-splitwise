@@ -9,7 +9,7 @@ const Items = ({ groupId, users }) => {
     const fetchItems = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`http://localhost:4000/api/items/${groupId}`);
+        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/items/${groupId}`);
         const data = await response.json();
         setItems(data);
       } catch (error) {

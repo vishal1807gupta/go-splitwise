@@ -13,7 +13,7 @@ const RecentTransactions = ({users, refreshTransactions}) => {
     const fetchTransactions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`http://localhost:4000/api/getTransactions/${groupId}`);
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/getTransactions/${groupId}`);
             const data = await response.json();
             setTransactions(data);
         } catch(error) {

@@ -22,7 +22,7 @@ const Group = () => {
     const fetchGroupUsers = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`http://localhost:4000/api/groupUsers/${groupId}`);
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/groupUsers/${groupId}`);
             const data = await response.json();
             setUsers(data);
         } catch (error) {
