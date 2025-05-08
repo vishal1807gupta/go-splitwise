@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"go-splitwise/controller"
@@ -35,6 +36,11 @@ func main() {
 		}
 	}()
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "4000"
+	}
+
 	fmt.Println("Listening at port 4000...")
-	log.Fatal(http.ListenAndServe(":4000", handler))
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
