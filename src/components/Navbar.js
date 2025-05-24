@@ -3,8 +3,9 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 const Navbar = () => {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout} = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const location = useLocation();
   const menuRef = useRef(null);
   
@@ -32,10 +33,13 @@ const Navbar = () => {
 
   const handleLogout = async () => {
     try {
+      setIsLoggingOut(true);
       await logout();
       // Redirect is handled by the protected route
     } catch (error) {
       console.error("Logout failed", error);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
@@ -44,6 +48,7 @@ const Navbar = () => {
   };
 
   return (
+    <>
     <nav className="bg-white shadow-sm fixed top-0 inset-x-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
@@ -226,6 +231,12 @@ const Navbar = () => {
         )}
       </div>
     </nav>
+    {isLoggingOut && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent"></div>
+        </div>
+      )}
+    </>
   );
 };
 
