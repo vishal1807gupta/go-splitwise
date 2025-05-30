@@ -5,9 +5,10 @@ import { useAuth } from "../auth/AuthContext";
 const Navbar = () => {
   const { currentUser, logout} = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const location = useLocation();
-  const menuRef = useRef(null);
+  const menuRef = useRef(null);   // menuRef.current -> null
+  // updating a ref doesn't trigger a re-render of your component
   
   const isLoginPage = location.pathname === "/login";
   const isRegisterPage = location.pathname === "/register";

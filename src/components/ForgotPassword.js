@@ -19,7 +19,7 @@ const ForgotPassword = () => {
     try {
         await requestPasswordReset(email);
         setMessage('Check your email for the verification code');
-        navigate('/reset-password', { state: { email } });
+        setTimeout(()=>navigate('/reset-password', { state: { email } }),2000);
     }catch (err) {
         setError(err.message || 'Failed to request password reset');
     }finally {

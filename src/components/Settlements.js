@@ -86,15 +86,18 @@ const Settlements = ({ groupId, users, refreshItems, setRefreshTransactions }) =
     fetchSettlements();
   }, [users, groupId, currentUser?.id, refreshItems]);
 
+  // useMemo is used to cache a return value (value/function) so we can use useMemo for both but it's prefreable to use it for values
+  // useCallback is designed to cache function and not values, that's why it's more prefreable to use it for functions rather than useMemo
+
   // Check if there are any non-zero settlements
   const hasSettlements = useMemo(() => {
     if(!settlements)return false;
-    return settlements.some(s => s.share_amount !== 0);
+    return settlements.some(s => s.share_amount !== 0); // return true if any settlements have value not equal to zero
   }, [settlements]);
 
   const { totalBalance, isPositiveBalance } = useMemo(() => {
     if(!settlements)return false;
-    const total = settlements.reduce((sum, s) => sum + s.share_amount, 0).toFixed(2);
+    const total = settlements.reduce((sum, s) => sum + s.share_amount, 0).toFixed(2); // transform array into a single value
     return {
       totalBalance: total,
       isPositiveBalance: parseFloat(total) >= 0
