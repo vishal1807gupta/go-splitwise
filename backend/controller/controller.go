@@ -986,7 +986,7 @@ func GetItemsByGroupId(w http.ResponseWriter, r *http.Request) {
 	groupID := vars["groupId"]
 
 	// Use direct string formatting
-	query := fmt.Sprintf("SELECT item_id, amount, paid_by, description, created_at FROM items WHERE group_id = %s", groupID)
+	query := fmt.Sprintf("SELECT item_id, amount, paid_by, description, created_at FROM items WHERE group_id = %s ORDER BY created_at DESC", groupID)
 
 	rows, err := db.Query(query)
 	if err != nil {
