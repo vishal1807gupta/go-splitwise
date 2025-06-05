@@ -35,7 +35,7 @@ func configureDatabase() {
 	db.SetConnMaxLifetime(30 * time.Minute) // Recycle connections periodically
 	db.SetConnMaxIdleTime(5 * time.Minute)  // Don't keep idle connections too long
 
-	// Verify connections work
+	// Verify connections work -> health checkup
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Database connection failed: %v", err)
 	}
@@ -50,6 +50,7 @@ func init() {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 
+	// so without this params and query are sent in two different parts but after using it first params are inserted in queries then sent to db so this is db drivers issue that happens sometimes when not able to bind it properly
 	if !strings.Contains(databaseURL, "?") {
 		databaseURL += "?disable_prepared_statements=true"
 	} else {
@@ -82,9 +83,9 @@ func jsonError(w http.ResponseWriter, message string, code int) {
 }
 
 func generateSessionToken() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	b := make([]byte, 32)        // [0,....,] 32 elements initially 0
+	_, _ = rand.Read(b)          // fills with randomm values between 0 and 255
+	return hex.EncodeToString(b) // 64 chars string
 }
 
 func isValidEmail(email string) bool {
@@ -248,8 +249,8 @@ func calculateBalances(expense *model.Expense) error {
 
 func getUserByEmail(email string) (*model.UserRequest, error) {
 	user := &model.UserRequest{}
-	query := "SELECT user_id, email, password FROM users WHERE email = $1"
-	err := db.QueryRow(query, email).Scan(&user.UserID, &user.Email, &user.Password)
+	query := "SELECT user_id FROM users WHERE email = $1"
+	err := db.QueryRow(query, email).Scan(&user.UserID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("user not found")
@@ -281,6 +282,7 @@ func savePasswordReset(reset model.PasswordReset) error {
 	return err
 }
 
+// method attached to passwordresetservice
 func (s *PasswordResetService) RequestPasswordReset(emailAddress string) error {
 	user, err := getUserByEmail(emailAddress)
 	if err != nil {
@@ -313,7 +315,7 @@ func (s *PasswordResetService) RequestPasswordReset(emailAddress string) error {
 }
 
 func getLatestPasswordResetByEmail(emailAddress string) (*model.PasswordReset, error) {
-	reset := &model.PasswordReset{}
+	reset := &model.PasswordReset{} // created an instance with fields initalized to default values and return the reference
 	query := `
 		SELECT id, user_id, email, code, expires_at, used, created_at
 		FROM password_resets
@@ -382,7 +384,7 @@ func (s *PasswordResetService) ValidateCodeAndResetPassword(email, code, newPass
 	}
 
 	// Hash the new password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 14)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 14) // 60 chars password
 	if err != nil {
 		return errors.New("we couldn't process your password, please try a different password")
 	}

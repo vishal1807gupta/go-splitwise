@@ -100,7 +100,7 @@ func (r *R2Storage) DeleteFile(filename string) error {
 	return err
 }
 
-// GetPresignedURL generates a presigned URL for temporary direct access
+// GetPresignedURL generates a presigned URL for temporary direct access for private files
 func (r *R2Storage) GetPresignedURL(filename string, duration time.Duration) (string, error) {
 	key := fmt.Sprintf("uploads/%s", filename)
 

@@ -61,12 +61,12 @@ const Memories = ({ groupId, onMemoryAdded }) => {
         try {
             // Fetch the image as a blob
             const response = await fetch(imageUrl);
-            const blob = await response.blob();
+            const blob = await response.blob(); // converts to binary data
             
             // Create a blob URL for the image
             const blobUrl = URL.createObjectURL(blob);
             
-            // Create a link element
+            // Create a temporary link element
             const link = document.createElement('a');
             link.href = blobUrl;
             link.download = `group-memory-${memoryId}.jpg`; // Set filename for download

@@ -21,7 +21,7 @@ type EmailService struct {
 
 // NewEmailService creates a new email service
 func NewEmailService(ctx context.Context, region, sender string) (*EmailService, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region)) // read credentials from environment variables
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}

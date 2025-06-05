@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useDropzone } from 'react-dropzone'; // provides drag-and-drop file upload functionality
 
 const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
     const [file, setFile] = useState(null);
@@ -23,8 +23,9 @@ const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
         }
         
         // Create preview
-        const objectUrl = URL.createObjectURL(selectedFile);
+        const objectUrl = URL.createObjectURL(selectedFile); // request to browser to create a temporary URL for the file(browser's file location -> URL)  -> stores the file in browser memory
         setPreview(objectUrl);
+        // console.log(selectedFile, objectUrl);
         setFile(selectedFile);
         
         // Clean up preview URL when component unmounts
@@ -32,7 +33,7 @@ const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
     }, []);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
-        onDrop,
+        onDrop,    // callback function triggered when files are dropped
         accept: {
             'image/*': ['.jpeg', '.jpg', '.png', '.gif', '.webp']
         },
@@ -41,6 +42,12 @@ const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // console.log(getRootProps(), getInputProps(), isDragActive);
+
+        // to enable dropzone functionality these properties are used:
+        // getRootProps() -> gives information(properties) about the dropzone area element
+        // getInputProps() -> gives information(properties) about the input element of dropzone
         
         if (!file) {
             setError('Please select an image first');
@@ -50,7 +57,7 @@ const ImageUploader = ({ groupId, onUploadSuccess, onCancel }) => {
         setUploading(true);
         setError(null);
         
-        const formData = new FormData();
+        const formData = new FormData(); // data format used to send file objects for http requests
         formData.append('image', file);
         formData.append('groupId', groupId);
         
