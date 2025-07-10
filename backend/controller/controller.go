@@ -1821,3 +1821,9 @@ func TriggerMonthlyReminders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"message":"Monthly balance reminder job started"}`)
 }
+
+func Ping(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprintln(w, "Backend is awake")
+}
+
