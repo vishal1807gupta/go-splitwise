@@ -31,7 +31,7 @@ func Router() *mux.Router {
 	r.HandleFunc("/api/getTransactions/{groupId}", controller.GetTransactions).Methods("GET")
 	r.HandleFunc("/api/insertTransactions/{groupId}", controller.InsertTransactions).Methods("POST")
 	r.HandleFunc("/api/trigger-monthly-reminders", controller.TriggerMonthlyReminders).Methods("POST")
-	r.HandleFunc("/api/wakeup", controller.WakeUp).Methods("POST")
+	r.HandleFunc("/api/wakeup", controller.Ping).Methods("GET")
 
 	return r
 }
