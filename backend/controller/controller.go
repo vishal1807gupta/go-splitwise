@@ -519,6 +519,7 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		Path:     "/",
 		SameSite: http.SameSiteNoneMode,
+		Partitioned:true,
 	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(registeredUser)
@@ -575,6 +576,7 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		Path:     "/",
 		SameSite: http.SameSiteNoneMode,
+		Partitioned:true,
 	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(registeredUser)
@@ -644,6 +646,7 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		Path:     "/",
 		SameSite: http.SameSiteNoneMode,
+		Partitioned:true,
 	})
 
 	user.Email = email
@@ -666,6 +669,7 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		Secure:   true,
 		Path:     "/",
 		SameSite: http.SameSiteNoneMode,
+		Partitioned:true,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
